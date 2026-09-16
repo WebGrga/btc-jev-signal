@@ -2,9 +2,11 @@
 
 A public, non-trading BTC forecasting experiment using TypeSafe Jev with public Kraken spot and Binance futures market data.
 
-Live hub: **https://btc-jev-signal.roko-experiments.workers.dev**
+Live hub: **https://lab.rokogrga.com**
 
-BTC–Jev experiment: **https://btc-jev-signal.roko-experiments.workers.dev/btc-jev**
+BTC–Jev experiment: **https://lab.rokogrga.com/btc-jev**
+
+Cloudflare fallback: **https://btc-jev-signal.roko-experiments.workers.dev**
 
 Canonical public addresses: `https://lab.rokogrga.com` and `https://lab.rokogrga.com/btc-jev`. Netlify serves the static hub from this GitHub repository and proxies `/api/*` to the Cloudflare Worker. The existing `www.rokogrga.com` portfolio remains a separate Netlify project.
 
