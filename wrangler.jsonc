@@ -20,6 +20,12 @@
       "migrations_dir": "migrations"
     }
   ],
+  "services": [
+    {
+      "binding": "RUNNER",
+      "service": "btc-jev-signal-runner"
+    }
+  ],
   "triggers": {
     "crons": ["1,16,31,46 * * * *"]
   },

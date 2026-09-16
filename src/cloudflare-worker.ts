@@ -20,6 +20,7 @@ import type {
 interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  RUNNER: Fetcher;
   TYPESAFE_API_KEY: string;
   LIQUIDATION_WINDOW_MS?: string;
 }
@@ -149,42 +150,13 @@ export default {
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
-      const boundaryMs = Math.floor(controller.scheduledTime / FIFTEEN_MINUTES_MS) * FIFTEEN_MINUTES_MS;
-      let forecastError: string | null = null;
-      let settlementError: string | null = null;
-      let settled = 0;
-
-      // A delayed settlement must never prevent the new forecast from running.
-      try {
-        await forecastBoundary(env, boundaryMs);
-      } catch (error) {
-        forecastError = errorMessage(error);
-      }
-
-      try {
-        settled = await settleDue(env, controller.scheduledTime);
-      } catch (error) {
-        settlementError = errorMessage(error);
-      }
-
-      const result = {
-        event: "forecast_cycle",
-        boundary_utc: new Date(boundaryMs).toISOString(),
-        forecast_ok: forecastError === null,
-        settlement_ok: settlementError === null,
-        settled,
-        forecast_error: forecastError,
-        settlement_error: settlementError,
-      };
-
-      if (forecastError || settlementError) {
-        console.error(JSON.stringify(result));
-        throw new Error(
-          `Forecast cycle incomplete: ${[forecastError, settlementError].filter(Boolean).join(" | ")}`,
-        );
-      }
-
-      console.log(JSON.stringify(result));
+      const response = await env.RUNNER.fetch(new Request("https://runner.internal/internal/run-scheduled", {
+        method: "POST",
+        headers: { "X-Scheduled-Time": String(controller.scheduledTime) },
+      }));
+      const body = await response.text();
+      if (!response.ok) throw new Error(`Placed forecast runner failed (${response.status}): ${body}`);
+      console.log(body);
     })());
   },
 } satisfies ExportedHandler<Env>;

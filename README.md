@@ -56,11 +56,12 @@ Small samples are descriptive only. Jev confidence describes concentration in th
 
 ## Cloudflare production architecture
 
-- Cloudflare Workers serves the API and runs the scheduled experiment.
+- The public Cloudflare Worker serves the API and owns the Cron Trigger.
+- Cron invokes a separate private Worker through a Service Binding. That runner is explicitly placed near AWS Frankfurt (`eu-central-1`) and owns all exchange, Jev, and D1 forecast-cycle calls.
 - A project-specific Netlify site builds this repository's dashboard under `/btc-jev`; the RG Lab edge route exposes it at the canonical `lab.rokogrga.com/btc-jev` address.
 - Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
 - Cloudflare D1 stores prediction batches and settlements.
-- Cloudflare Worker Secrets stores `TYPESAFE_API_KEY`.
+- Cloudflare Worker Secrets stores `TYPESAFE_API_KEY` only on the private runner.
 - One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Bybit Spot candle to finalize before collection.
 
 The production database is intentionally separate from `data/*.jsonl`. A new deployment starts a clean online history unless a local history import is deliberately approved and performed.
@@ -73,7 +74,8 @@ Requires Node.js 20.19 or newer and a Cloudflare account.
 npm install
 npx wrangler login
 npm run cloudflare:migrate
-npx wrangler secret put TYPESAFE_API_KEY
+npm run cloudflare:deploy:runner
+npx wrangler secret put TYPESAFE_API_KEY --name btc-jev-signal-runner
 npm run cloudflare:deploy
 ```
 
@@ -83,7 +85,9 @@ Useful Cloudflare commands:
 
 ```powershell
 npm run cloudflare:check   # Build and validate without publishing
+npm run cloudflare:check:runner
 npm run cloudflare:dev     # Local Worker/D1 development
+npm run cloudflare:deploy:runner
 npm run cloudflare:deploy  # Build and publish
 ```
 
