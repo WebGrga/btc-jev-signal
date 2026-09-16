@@ -1,8 +1,12 @@
-# BTC / Jev Lab
+# RG Lab / BTC–Jev
 
 A public, non-trading BTC forecasting experiment using TypeSafe Jev with public Kraken spot and Binance futures market data.
 
-Live dashboard: **https://btc-jev-signal.roko-experiments.workers.dev**
+Live hub: **https://btc-jev-signal.roko-experiments.workers.dev**
+
+BTC–Jev experiment: **https://btc-jev-signal.roko-experiments.workers.dev/btc-jev**
+
+The intended canonical addresses are `https://lab.rokogrga.com` and `https://lab.rokogrga.com/btc-jev` once the domain's authoritative DNS is moved to Cloudflare. The existing `www.rokogrga.com` website remains hosted by Netlify.
 
 This is a personal software experiment, not financial advice, investment research, or a trading service. It never places or prepares trades.
 

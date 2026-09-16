@@ -112,6 +112,38 @@ function useDashboard(): { data: DashboardData | null; error: string | null; loa
   return { data, error, loading };
 }
 
+function LabHub(): React.JSX.Element {
+  const { data, error } = useDashboard();
+  const latest15m = data?.latest_forecasts.find((forecast) => forecast.horizon === "15m");
+  useEffect(() => { document.title = "RG Lab — Experiments"; }, []);
+  return (
+    <div className="lab-shell">
+      <header className="lab-header"><a href="/" className="brand">RG Lab</a><a href="https://www.rokogrga.com">rokogrga.com ↗</a></header>
+      <main className="lab-main">
+        <section className="lab-intro">
+          <span className="section-kicker">Independent software experiments</span>
+          <h1>Small systems for testing ambitious ideas.</h1>
+          <p>RG Lab is a public collection of working projects. Each experiment exposes what it receives, what it produces, and how its results are measured.</p>
+        </section>
+        <section className="lab-projects" aria-labelledby="projects-title">
+          <div className="lab-section-heading"><h2 id="projects-title">Projects</h2><span>1 live</span></div>
+          <a className="project-card" href="/btc-jev">
+            <div className="project-card-top"><span className="project-index">01</span><span className="status status-correct">Live</span></div>
+            <div><h3>BTC–Jev</h3><p>A continuously scored BTC direction experiment using TypeSafe Jev probability judgments and fixed market-data inputs.</p></div>
+            <dl>
+              <div><dt>Forecasts</dt><dd>15m · 1h · 4h · UTC close</dd></div>
+              <div><dt>Latest 15m call</dt><dd>{latest15m ? `${directionLabel(latest15m.choice)} ${formatProbability(latest15m.probabilities[latest15m.choice], 0)}` : error ? "Temporarily unavailable" : "Collecting data"}</dd></div>
+              <div><dt>Execution</dt><dd>Cloudflare Worker · D1</dd></div>
+            </dl>
+            <span className="project-open">Open experiment →</span>
+          </a>
+        </section>
+      </main>
+      <footer className="lab-footer"><span>RG Lab</span><span>Built by Roko Grga</span></footer>
+    </div>
+  );
+}
+
 function Sparkline({ data, horizon }: { data: DashboardData; horizon: Horizon }): React.JSX.Element {
   const values = data.probability_history
     .map((point) => point.higher_probability[horizon])
@@ -253,12 +285,12 @@ function Dashboard({ data, error }: { data: DashboardData; error: string | null 
   const forecastByHorizon = useMemo(() => new Map(data.latest_forecasts.map((forecast) => [forecast.horizon, forecast])), [data.latest_forecasts]);
   return (
     <div className="app">
-      <header className="appbar"><a href="#top" className="brand">BTC / Jev Lab</a><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip">Public experiment</span></header>
+      <header className="appbar"><div className="brand-path"><a href="/" className="brand">RG Lab</a><span>/</span><a href="/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip">Public experiment</span></header>
       {error ? <div className="error-banner">Live refresh failed. Displaying the last successful response.</div> : null}
       <main id="top" className="dashboard">
         <section className="summary-strip">
           <div className="price-block"><span>BTC snapshot</span><strong>{formatUsd(latest.state.snapshot.anchor_price_usdt)}</strong></div>
-          <dl><div><dt>Snapshot UTC</dt><dd>{formatUtc(latest.state.snapshot.timestamp_utc)} UTC</dd></div><div><dt>Source</dt><dd>Binance completed 1m close</dd></div><div><dt>Scoring policy</dt><dd>Natural non-overlapping cadence</dd></div><div><dt>Dashboard generated</dt><dd>{formatUtc(data.generated_at_utc)} UTC</dd></div></dl>
+          <dl><div><dt>Snapshot UTC</dt><dd>{formatUtc(latest.state.snapshot.timestamp_utc)} UTC</dd></div><div><dt>Source</dt><dd>{latest.state.snapshot.anchor_price_source}</dd></div><div><dt>Scoring policy</dt><dd>Natural non-overlapping cadence</dd></div><div><dt>Dashboard generated</dt><dd>{formatUtc(data.generated_at_utc)} UTC</dd></div></dl>
           <p><strong>Experimental personal research.</strong> Not financial advice. No trades are placed.</p>
         </section>
 
@@ -269,7 +301,7 @@ function Dashboard({ data, error }: { data: DashboardData; error: string | null 
 
         <section className="explain-grid">
           <article className="panel"><header className="panel-header"><div><h2>Forecast lifecycle</h2><p>What enters the equation and how it becomes a score.</p></div></header><ol className="pipeline">
-            <li><b>1</b><div><strong>Observe</strong><span>Completed Binance candles, derivatives, liquidations and order book are captured at an exact UTC boundary.</span></div></li><li><b>2</b><div><strong>Calculate</strong><span>Returns, RSI, MACD, ATR, volume and moving-average distances are produced in ordinary code.</span></div></li><li><b>3</b><div><strong>Ask Jev</strong><span>The neutral structured State and an atomic higher-or-lower question produce a full probability distribution.</span></div></li><li><b>4</b><div><strong>Freeze</strong><span>The original price, target timestamp and probabilities are saved before the outcome exists.</span></div></li><li><b>5</b><div><strong>Settle</strong><span>At the target, code retrieves the exact completed 1-minute close and calculates accuracy, Brier score and log loss.</span></div></li>
+            <li><b>1</b><div><strong>Observe</strong><span>Completed Kraken spot candles and order book, plus available Binance futures measurements, are captured at an exact UTC boundary.</span></div></li><li><b>2</b><div><strong>Calculate</strong><span>Returns, RSI, MACD, ATR, volume and moving-average distances are produced in ordinary code.</span></div></li><li><b>3</b><div><strong>Ask Jev</strong><span>The neutral structured State and an atomic higher-or-lower question produce a full probability distribution.</span></div></li><li><b>4</b><div><strong>Freeze</strong><span>The original price, target timestamp and probabilities are saved before the outcome exists.</span></div></li><li><b>5</b><div><strong>Settle</strong><span>At the target, code retrieves the exact completed Kraken 1-minute close and calculates accuracy, Brier score and log loss.</span></div></li>
           </ol></article>
           <article className="panel"><header className="panel-header"><div><h2>Issue schedule</h2><p>Each horizon now creates one non-overlapping sequence of trials.</p></div></header><ScheduleTable data={data} /><p className="callout">The previous version asked all four questions every 15 minutes. Those records are preserved, but overlapping 1h, 4h and day-close calls are excluded from the primary score.</p></article>
         </section>
@@ -279,14 +311,22 @@ function Dashboard({ data, error }: { data: DashboardData; error: string | null 
         <section id="log" className="panel panel-section"><header className="panel-header"><div><h2>Eligible forecast log</h2><p>Only forecasts matching the natural schedule appear here. Each result compares its own issue price with its own exact target timestamp.</p></div></header><RecentForecasts forecasts={data.recent_forecasts} /></section>
         <section className="sources panel-section"><div><strong>Spot and indicators</strong><span>{latest.state.sources.spot}</span></div><div><strong>Funding and open interest</strong><span>{latest.state.sources.perpetual_futures}</span></div><div><strong>Liquidations</strong><span>{latest.state.sources.liquidations}</span></div><div><strong>Settlement</strong><span>{data.methodology.target_price_source}</span></div></section>
       </main>
-      <footer className="site-footer"><span>BTC / Jev Lab</span><span>Experimental signal research · Not financial advice</span></footer>
+      <footer className="site-footer"><span>RG Lab / BTC–Jev</span><span>Experimental signal research · Not financial advice</span></footer>
     </div>
   );
 }
 
-export function App(): React.JSX.Element {
+function ExperimentPage(): React.JSX.Element {
   const { data, error, loading } = useDashboard();
+  useEffect(() => { document.title = "BTC–Jev — RG Lab"; }, []);
   if (loading && !data) return <main className="loading">Loading experiment data…</main>;
   if (!data?.latest_batch) return <main className="loading">The experiment is online and waiting for its first forecast.</main>;
   return <Dashboard data={data} error={error} />;
+}
+
+export function App(): React.JSX.Element {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/") return <LabHub />;
+  if (path === "/btc-jev") return <ExperimentPage />;
+  return <main className="not-found"><div><span className="section-kicker">RG Lab</span><h1>Experiment not found.</h1><a href="/">Return to all projects →</a></div></main>;
 }
