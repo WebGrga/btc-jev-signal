@@ -4,3 +4,4 @@ dist/
 *.log
 output.json
 data/
+.wrangler/

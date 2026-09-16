@@ -6,6 +6,11 @@ import type {
   PredictionBatch,
   Settlement,
 } from "./experiment-types.js";
+import {
+  HORIZON_ORDER,
+  HORIZON_SCHEDULE,
+  isPrimaryForecast,
+} from "./experiment-schedule.js";
 
 export type ForecastStatus = "pending" | "correct" | "incorrect" | "tie";
 
@@ -30,7 +35,7 @@ export interface DashboardForecast {
 export interface ProbabilityPoint {
   timestamp_utc: string;
   anchor_price_usdt: number;
-  higher_probability: Record<Horizon, number>;
+  higher_probability: Partial<Record<Horizon, number>>;
 }
 
 export interface DashboardBatch {
@@ -49,6 +54,12 @@ export interface DashboardData {
   recent_forecasts: DashboardForecast[];
   probability_history: ProbabilityPoint[];
   report: ExperimentReport;
+  schedule: typeof HORIZON_SCHEDULE;
+  methodology: {
+    scoring_policy: "natural_non_overlapping_v1";
+    target_price_source: "Binance Spot completed 1m candle close";
+    legacy_overlapping_forecasts_retained: true;
+  };
 }
 
 function settlementStatus(settlement: Settlement | undefined): ForecastStatus {
@@ -95,8 +106,10 @@ export function buildDashboardData(
   );
   const latestBatch = sortedBatches.at(-1) ?? null;
   const recentBatches = sortedBatches.slice(-192);
-  const recentForecasts = recentBatches
-    .flatMap((batch) => batch.forecasts.map((forecast) => dashboardForecast(forecast, settlementsById)))
+  const eligibleForecasts = sortedBatches
+    .flatMap((batch) => batch.forecasts.filter(isPrimaryForecast))
+    .map((forecast) => dashboardForecast(forecast, settlementsById));
+  const recentForecasts = eligibleForecasts
     .sort(
       (left, right) =>
         Date.parse(right.origin_timestamp_utc) - Date.parse(left.origin_timestamp_utc),
@@ -115,16 +128,30 @@ export function buildDashboardData(
           state: latestBatch.state,
         }
       : null,
-    latest_forecasts:
-      latestBatch?.forecasts.map((forecast) => dashboardForecast(forecast, settlementsById)) ?? [],
+    latest_forecasts: HORIZON_ORDER.flatMap((horizon) => {
+      const forecast = [...eligibleForecasts]
+        .filter((candidate) => candidate.horizon === horizon)
+        .sort((left, right) => Date.parse(right.origin_timestamp_utc) - Date.parse(left.origin_timestamp_utc))[0];
+      return forecast ? [forecast] : [];
+    }),
     recent_forecasts: recentForecasts,
-    probability_history: recentBatches.map((batch) => ({
-      timestamp_utc: batch.state.snapshot.timestamp_utc,
-      anchor_price_usdt: batch.state.snapshot.anchor_price_usdt,
-      higher_probability: Object.fromEntries(
-        batch.forecasts.map((forecast) => [forecast.horizon, forecast.probabilities.higher]),
-      ) as Record<Horizon, number>,
-    })),
+    probability_history: recentBatches
+      .map((batch) => ({
+        timestamp_utc: batch.state.snapshot.timestamp_utc,
+        anchor_price_usdt: batch.state.snapshot.anchor_price_usdt,
+        higher_probability: Object.fromEntries(
+          batch.forecasts
+            .filter(isPrimaryForecast)
+            .map((forecast) => [forecast.horizon, forecast.probabilities.higher]),
+        ) as Partial<Record<Horizon, number>>,
+      }))
+      .filter((point) => Object.keys(point.higher_probability).length > 0),
     report: buildReport(sortedBatches, settlements),
+    schedule: HORIZON_SCHEDULE,
+    methodology: {
+      scoring_policy: "natural_non_overlapping_v1",
+      target_price_source: "Binance Spot completed 1m candle close",
+      legacy_overlapping_forecasts_retained: true,
+    },
   };
 }

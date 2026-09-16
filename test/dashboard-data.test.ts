@@ -8,11 +8,16 @@ import type {
   Settlement,
 } from "../src/experiment-types.js";
 
-function forecast(id: string, horizon: Forecast["horizon"], choice: Forecast["choice"]): Forecast {
+function forecast(
+  id: string,
+  horizon: Forecast["horizon"],
+  choice: Forecast["choice"],
+  origin = "2026-09-16T08:00:00.000Z",
+): Forecast {
   return {
     forecast_id: id,
     horizon,
-    origin_timestamp_utc: "2026-09-16T08:00:00.000Z",
+    origin_timestamp_utc: origin,
     target_timestamp_utc: "2026-09-16T08:15:00.000Z",
     origin_price_usdt: 100,
     choice,
@@ -34,7 +39,10 @@ test("dashboard exposes latest probabilities and settlement status without usage
         anchor_price_usdt: 100,
       },
     } as unknown as ExperimentState,
-    forecasts: [forecast("f-15m", "15m", "higher"), forecast("f-eod", "eod", "lower")],
+    forecasts: [
+      forecast("f-15m", "15m", "higher"),
+      forecast("f-eod", "eod", "lower", "2026-09-16T00:00:00.000Z"),
+    ],
     usage: { parallel_horizons: { private: true }, eod_cascade: { private: true } },
   };
   const settlement: Settlement = {
@@ -61,6 +69,7 @@ test("dashboard exposes latest probabilities and settlement status without usage
   assert.equal(data.latest_forecasts[1]?.status, "pending");
   assert.equal(data.probability_history[0]?.higher_probability["15m"], 0.9);
   assert.equal(data.report.reports.find((item) => item.horizon === "overall")?.issued, 2);
+  assert.equal(data.schedule["1h"].expected_per_utc_day, 24);
   assert.equal("usage" in data.latest_forecasts[0]!, false);
   assert.equal("usage" in data.latest_batch!, false);
 });

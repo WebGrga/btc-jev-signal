@@ -147,6 +147,7 @@ export interface HorizonReport {
   mean_brier_score: number | null;
   mean_log_loss: number | null;
   mean_chosen_probability: number | null;
+  excluded_overlapping: number;
 }
 
 export interface ExperimentReport {
