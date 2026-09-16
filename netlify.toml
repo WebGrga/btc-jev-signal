@@ -6,13 +6,23 @@
   NODE_VERSION = "20.19.0"
 
 [[redirects]]
-  from = "/api/*"
+  from = "/btc-jev/api/*"
   to = "https://btc-jev-signal.roko-experiments.workers.dev/api/:splat"
   status = 200
   force = true
 
 [[redirects]]
-  from = "/*"
+  from = "/btc-jev"
   to = "/index.html"
   status = 200
 
+[[redirects]]
+  from = "/btc-jev/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/"
+  to = "https://lab.rokogrga.com/btc-jev"
+  status = 301
+  force = true

@@ -7,6 +7,7 @@ const webRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: webRoot,
+  base: "/btc-jev/",
   plugins: [react()],
   build: {
     outDir: path.join(webRoot, "dist"),
@@ -14,7 +15,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://localhost:3000",
+      "/btc-jev/api": {
+        target: "http://localhost:3000",
+        rewrite: (requestPath) => requestPath.replace(/^\/btc-jev/, ""),
+      },
     },
   },
 });

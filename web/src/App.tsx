@@ -89,7 +89,7 @@ function useDashboard(): { data: DashboardData | null; error: string | null; loa
     let active = true;
     const load = async () => {
       try {
-        const response = await fetch("/api/dashboard", { cache: "no-store" });
+        const response = await fetch("/btc-jev/api/dashboard", { cache: "no-store" });
         if (!response.ok) throw new Error(`Dashboard request failed (${response.status})`);
         const next = (await response.json()) as DashboardData;
         if (active) {
@@ -110,38 +110,6 @@ function useDashboard(): { data: DashboardData | null; error: string | null; loa
     };
   }, []);
   return { data, error, loading };
-}
-
-function LabHub(): React.JSX.Element {
-  const { data, error } = useDashboard();
-  const latest15m = data?.latest_forecasts.find((forecast) => forecast.horizon === "15m");
-  useEffect(() => { document.title = "RG Lab — Experiments"; }, []);
-  return (
-    <div className="lab-shell">
-      <header className="lab-header"><a href="/" className="brand">RG Lab</a><a href="https://www.rokogrga.com">rokogrga.com ↗</a></header>
-      <main className="lab-main">
-        <section className="lab-intro">
-          <span className="section-kicker">Independent software experiments</span>
-          <h1>Small systems for testing ambitious ideas.</h1>
-          <p>RG Lab is a public collection of working projects. Each experiment exposes what it receives, what it produces, and how its results are measured.</p>
-        </section>
-        <section className="lab-projects" aria-labelledby="projects-title">
-          <div className="lab-section-heading"><h2 id="projects-title">Projects</h2><span>1 live</span></div>
-          <a className="project-card" href="/btc-jev">
-            <div className="project-card-top"><span className="project-index">01</span><span className="status status-correct">Live</span></div>
-            <div><h3>BTC–Jev</h3><p>A continuously scored BTC direction experiment using TypeSafe Jev probability judgments and fixed market-data inputs.</p></div>
-            <dl>
-              <div><dt>Forecasts</dt><dd>15m · 1h · 4h · UTC close</dd></div>
-              <div><dt>Latest 15m call</dt><dd>{latest15m ? `${directionLabel(latest15m.choice)} ${formatProbability(latest15m.probabilities[latest15m.choice], 0)}` : error ? "Temporarily unavailable" : "Collecting data"}</dd></div>
-              <div><dt>Execution</dt><dd>Cloudflare Worker · D1</dd></div>
-            </dl>
-            <span className="project-open">Open experiment →</span>
-          </a>
-        </section>
-      </main>
-      <footer className="lab-footer"><span>RG Lab</span><span>Built by Roko Grga</span></footer>
-    </div>
-  );
 }
 
 function Sparkline({ data, horizon }: { data: DashboardData; horizon: Horizon }): React.JSX.Element {
@@ -285,7 +253,7 @@ function Dashboard({ data, error }: { data: DashboardData; error: string | null 
   const forecastByHorizon = useMemo(() => new Map(data.latest_forecasts.map((forecast) => [forecast.horizon, forecast])), [data.latest_forecasts]);
   return (
     <div className="app">
-      <header className="appbar"><div className="brand-path"><a href="/" className="brand">RG Lab</a><span>/</span><a href="/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip">Public experiment</span></header>
+      <header className="appbar"><div className="brand-path"><a href="https://lab.rokogrga.com/" className="brand">RG Lab</a><span>/</span><a href="https://lab.rokogrga.com/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip">Public experiment</span></header>
       {error ? <div className="error-banner">Live refresh failed. Displaying the last successful response.</div> : null}
       <main id="top" className="dashboard">
         <section className="summary-strip">
@@ -326,7 +294,6 @@ function ExperimentPage(): React.JSX.Element {
 
 export function App(): React.JSX.Element {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  if (path === "/") return <LabHub />;
-  if (path === "/btc-jev") return <ExperimentPage />;
-  return <main className="not-found"><div><span className="section-kicker">RG Lab</span><h1>Experiment not found.</h1><a href="/">Return to all projects →</a></div></main>;
+  if (path === "/btc-jev" || path === "/") return <ExperimentPage />;
+  return <main className="not-found"><div><span className="section-kicker">BTC–Jev</span><h1>Experiment page not found.</h1><a href="https://lab.rokogrga.com/btc-jev">Return to the dashboard →</a></div></main>;
 }

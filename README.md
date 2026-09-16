@@ -1,14 +1,12 @@
-# RG Lab / BTC–Jev
+# BTC–Jev Signal
 
 A public, non-trading BTC forecasting experiment using TypeSafe Jev with public Kraken spot and Binance futures market data.
 
-Live hub: **https://lab.rokogrga.com**
-
-BTC–Jev experiment: **https://lab.rokogrga.com/btc-jev**
+Public dashboard: **https://lab.rokogrga.com/btc-jev**
 
 Cloudflare fallback: **https://btc-jev-signal.roko-experiments.workers.dev**
 
-Canonical public addresses: `https://lab.rokogrga.com` and `https://lab.rokogrga.com/btc-jev`. Netlify serves the static hub from this GitHub repository and proxies `/api/*` to the Cloudflare Worker. The existing `www.rokogrga.com` portfolio remains a separate Netlify project.
+This repository owns the complete BTC–Jev project: its dashboard, market-data collection, Jev judgments, scoring, Cloudflare Worker, and D1 schema. The separate `WebGrga/rg-lab` repository owns the public project index and routes `/btc-jev` to this project's independent Netlify deployment.
 
 This is a personal software experiment, not financial advice, investment research, or a trading service. It never places or prepares trades.
 
@@ -59,7 +57,8 @@ Small samples are descriptive only. Jev confidence describes concentration in th
 ## Cloudflare production architecture
 
 - Cloudflare Workers serves the API and runs the scheduled experiment.
-- Netlify serves the canonical `lab.rokogrga.com` frontend; Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
+- A project-specific Netlify site builds this repository's dashboard under `/btc-jev`; the RG Lab edge route exposes it at the canonical `lab.rokogrga.com/btc-jev` address.
+- Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
 - Cloudflare D1 stores prediction batches and settlements.
 - Cloudflare Worker Secrets stores `TYPESAFE_API_KEY`.
 - One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Kraken candle to finalize before collection.
@@ -130,6 +129,6 @@ Cloudflare stores equivalent JSON records in indexed D1 tables. Credentials are 
 - The public API is read-only and returns no secret or TypeSafe usage metadata.
 - Dashboard and API responses include restrictive security headers.
 
-## Netlify hub deployment
+## Netlify dashboard deployment
 
-The root route is the RG Lab project index and `/btc-jev` is the experiment dashboard. `netlify.toml` builds `web/dist`, proxies the read-only API to Cloudflare, and applies the single-page-app fallback required for direct visits to `/btc-jev`.
+This repository deploys only the BTC–Jev dashboard. `netlify.toml` builds `web/dist`, serves the app beneath `/btc-jev`, proxies `/btc-jev/api/*` to the Cloudflare Worker, and redirects the project deployment root to the canonical RG Lab address. The hub and its cross-project routing live in `WebGrga/rg-lab`.
