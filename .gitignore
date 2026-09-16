@@ -5,3 +5,4 @@ dist/
 output.json
 data/
 .wrangler/
+.dev.vars
