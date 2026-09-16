@@ -5,10 +5,12 @@
   "type": "module",
   "description": "Continuous multi-horizon BTC market experiment using Jev probability signals.",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc",
+    "build:web": "tsc -p web/tsconfig.json && vite build --config web/vite.config.ts",
     "prepredict": "tsc",
     "predict": "node dist/src/cli.js predict",
     "presnapshot": "tsc",
@@ -23,18 +25,37 @@
     "settle": "node dist/src/experiment-cli.js settle",
     "prereport": "tsc",
     "report": "node dist/src/experiment-cli.js report",
-    "check": "tsc --noEmit",
+    "predashboard": "npm run build",
+    "dashboard": "node dist/src/dashboard-cli.js",
+    "start": "node dist/src/hosted.js",
+    "cloudflare:dev": "npm run build:web && wrangler dev",
+    "cloudflare:check": "npm run build:web && wrangler deploy --dry-run",
+    "cloudflare:migrate": "wrangler d1 migrations apply btc-jev-signal --remote",
+    "cloudflare:deploy": "npm run build:web && wrangler deploy",
+    "check": "npm run check:server && npm run check:web",
+    "check:server": "tsc --noEmit",
+    "check:web": "tsc -p web/tsconfig.json",
     "pretest": "tsc",
     "test": "node --test dist/test/all.test.js"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "0.6.0",
     "dotenv": "17.4.2",
+    "express": "^5.2.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "ws": "8.21.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260916.1",
+    "@types/express": "^5.0.6",
     "@types/node": "20.19.43",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/ws": "8.18.1",
-    "typescript": "7.0.2"
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "7.0.2",
+    "vite": "^8.3.0",
+    "wrangler": "^4.132.0"
   }
 }

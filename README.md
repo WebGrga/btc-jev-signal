@@ -1,115 +1,134 @@
-# BTC / Jev continuous experiment
+# BTC–Jev Signal
 
-This project runs a live, non-trading BTC forecasting experiment. Every 15 minutes it records one boundary-aligned market state, asks TypeSafe Jev for rolling 15-minute, 1-hour, and 4-hour direction probabilities, then asks a second end-of-UTC-day question that can see all three earlier probability distributions. Later, ordinary code retrieves the exact target candle close and scores what happened.
+A public, non-trading BTC forecasting experiment using TypeSafe Jev with public Kraken spot and Binance futures market data.
 
-It never places or prepares trades.
+Public dashboard: **https://lab.rokogrga.com/btc-jev**
 
-## Quick start
+Cloudflare fallback: **https://btc-jev-signal.roko-experiments.workers.dev**
 
-Requires Node.js 20 or newer. Keep the terminal open while the experiment runs.
+This repository owns the complete BTC–Jev project: its dashboard, market-data collection, Jev judgments, scoring, Cloudflare Worker, and D1 schema. The separate `WebGrga/rg-lab` repository owns the public project index and routes `/btc-jev` to this project's independent Netlify deployment.
 
-```powershell
-npm install
-Copy-Item .env.example .env
-# Put TYPESAFE_API_KEY in .env
-npm run experiment
-```
+This is a personal software experiment, not financial advice, investment research, or a trading service. It never places or prepares trades.
 
-The runner waits for the next UTC 15-minute boundary, then repeats until you press Ctrl+C. It writes durable results under `data/` and produces `data/report.md` and `data/report.json`. Stopping with Ctrl+C writes the latest report cleanly.
+## What the experiment does
 
-Useful commands:
+At exact UTC boundaries, ordinary code collects a neutral structured market State. Jev answers atomic higher-or-lower questions with full probability distributions. Every forecast is frozen with its issue price and exact target timestamp. After the target passes, ordinary code retrieves the completed 1-minute close from the same spot source and calculates the outcome.
 
-```powershell
-# Make one immediate, minute-aligned four-horizon batch for a smoke test
-npm run experiment:once
+The primary experiment uses a natural, non-overlapping schedule:
 
-# Inspect the multi-timeframe State without calling Jev
-npm run experiment:state
+| Forecast | Issued | Target | Maximum primary trials per UTC day |
+| --- | --- | --- | ---: |
+| 15 minutes | Every 15 minutes | Issue + 15 minutes | 96 |
+| 1 hour | At the top of each hour | Issue + 1 hour | 24 |
+| 4 hours | Every fourth UTC hour | Issue + 4 hours | 6 |
+| UTC day close | At 00:00 UTC | Next 00:00 UTC | 1 |
 
-# Settle every forecast whose target time has passed
-npm run settle
+An earlier version issued every horizon every 15 minutes. Those append-only records remain auditable, but overlapping 1-hour, 4-hour, and day-close forecasts are excluded from the primary dashboard scores unless their issue time matches the natural schedule.
 
-# Print and regenerate the current report
-npm run report
-```
+## What Jev receives
 
-Restarting `npm run experiment` is safe. Existing boundary IDs are not duplicated, and overdue forecasts are settled on startup.
-
-## What is forecast
-
-Every scheduled batch has the same anchor: the Binance BTCUSDT 1-minute candle close at the exact UTC 15-minute boundary.
-
-| Forecast | Target | Jev stage |
-| --- | --- | --- |
-| `15m` | Anchor + 15 minutes | Parallel request |
-| `1h` | Anchor + 60 minutes | Parallel request |
-| `4h` | Anchor + 240 minutes | Parallel request |
-| `eod` | Next 00:00 UTC | Second request, with the 15m/1h/4h distributions added to State |
-
-The first three questions share one structured State and run together. That State contains completed-candle measurements for the 15m, 1h, and 4h timeframes, so the 1-hour judgment sees both lower- and higher-timeframe evidence. TypeSafe questions in one request are independent, so the end-of-day forecast uses a second request to explicitly consume the three earlier distributions.
-
-Each forecast is a binary `higher`/`lower` Choice. The old one-shot command included an `unchanged` option meaning exactly the same cent; that is not used in the scored experiment because it confuses directional uncertainty with literal price equality. A rare exact tie is recorded and excluded from binary scoring.
-
-## Market State
-
-All timestamps are UTC ISO 8601. Scheduled experiment States use schema `2.0.0` and the same fields every run.
+Every State uses normalized UTC ISO 8601 timestamps and completed candles only.
 
 | Measurement | Source and definition |
 | --- | --- |
-| Anchor and realized target price | Binance Spot completed 1-minute BTCUSDT candle close at the exact boundary |
-| Returns | Boundary anchor versus 1m candle closes 1m, 5m, 15m, 1h, and 4h earlier |
-| 15m / 1h / 4h indicators | RSI(14), MACD(12,26,9), ATR(14), SMA/EMA 20/50/200, price distances, completed-bar returns, and volume ratios using completed candles only |
-| UTC-day session | Open, high, low, volume, return from open, and minutes remaining until 00:00 UTC |
-| Funding and open interest | Binance USD-M Futures BTCUSDT public REST |
-| Liquidations | Binance USD-M Futures public `btcusdt@forceOrder` stream during the timestamped observation window |
-| Order-book imbalance | Binance Spot top 20 levels: `(bid notional - ask notional) / total notional` |
+| Anchor and realized target | Cloudflare: Kraken Spot completed BTC/USD 1-minute candle. Local runner: Binance Spot completed BTCUSDT 1-minute candle. |
+| Returns | 1m, 5m, 15m, 1h, and 4h from the runtime's spot source |
+| 15m / 1h / 4h indicators | RSI(14), MACD(12,26,9), ATR(14), SMA/EMA 20/50/200, price distances, bar returns, and volume ratios from completed spot candles |
+| UTC session | Spot open, high, low, volume, return from open, and minutes to 00:00 UTC |
+| Perpetual futures | Funding, mark/index price, open interest, and OI changes from Binance USD-M Futures |
+| Liquidations | Short timestamped observation of Binance's public BTCUSDT force-order WebSocket |
+| Order book | Cloudflare: Kraken Spot top-20 levels. Local runner: Binance Spot top-20 levels. Both expose bid/ask notionals, spread, and imbalance. |
 
-Completed higher-timeframe candles are deliberate: they prevent a historical candle's eventual close/high/low from leaking into an earlier live forecast.
+The State always identifies `snapshot.symbol`, `snapshot.quote_asset`, and every source string. Some stable JSON field names still end in `_usdt` for backward compatibility; in Cloudflare records those monetary values are USD, as declared by `quote_asset: "USD"`.
 
-## Files produced
+The 15m, 1h, and 4h questions share one State and run independently in one TypeSafe request when they are due together. The day-close question is a second-stage request that can consume the three horizon distributions. The API key stays server-side.
 
-- `data/predictions.jsonl`: append-only forecast batches, including the complete State Jev saw and every probability distribution.
-- `data/settlements.jsonl`: realized target prices, returns, direction, correctness, Brier score, and log loss.
-- `data/report.md`: readable results table by 15m, 1h, 4h, end-of-day, and overall.
-- `data/report.json`: the same aggregate report as structured JSON.
+## Reading the dashboard
 
-JSONL makes the run crash-tolerant and auditable. The original inputs and raw probability distributions remain available for later analysis.
+The dashboard intentionally separates four concepts:
 
-## Reading the report
+1. **Active forecasts** show the newest eligible prediction for each horizon, its reference price, target, probability split, and Jev confidence.
+2. **Forecast lifecycle** shows exactly how observed data becomes calculated State, a frozen prediction, and a scored outcome.
+3. **Performance by horizon** keeps different time windows separate. Accuracy measures the selected direction. Brier score and log loss evaluate probability quality; lower is better.
+4. **Exact inputs** exposes every major field and includes the complete JSON State for audit.
 
-The report shows issued, settled, pending, ties, directional accuracy, mean Brier score, and mean log loss for each horizon.
+Small samples are descriptive only. Jev confidence describes concentration in the returned distribution, not guaranteed correctness.
 
-- Higher accuracy is better.
-- Lower Brier score is better.
-- Lower log loss is better and strongly penalizes confidently wrong forecasts.
-- Rolling forecasts overlap, so they are not independent trials. Treat one day as an initial diagnostic, not proof of predictive value.
+## Cloudflare production architecture
 
-## Configuration
+- Cloudflare Workers serves the API and runs the scheduled experiment.
+- A project-specific Netlify site builds this repository's dashboard under `/btc-jev`; the RG Lab edge route exposes it at the canonical `lab.rokogrga.com/btc-jev` address.
+- Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
+- Cloudflare D1 stores prediction batches and settlements.
+- Cloudflare Worker Secrets stores `TYPESAFE_API_KEY`.
+- One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Kraken candle to finalize before collection.
 
-`.env.example` documents all options:
+The production database is intentionally separate from `data/*.jsonl`. A new deployment starts a clean online history unless a local history import is deliberately approved and performed.
 
-- `TYPESAFE_API_KEY`: required for forecasts and never written into State or output.
-- `LIQUIDATION_WINDOW_MS`: default `3000`; set to `0` to disable the short live observation.
-- `BOUNDARY_DELAY_MS`: default `10000`; allows the just-finished candle to begin propagating after each 15-minute boundary.
-- `CANDLE_FINALIZATION_TIMEOUT_MS`: default `60000`; polls Binance for the exact boundary candle instead of skipping a forecast when the market-data mirror is delayed.
-- `EXPERIMENT_DATA_DIR`: default `data`.
+### Deploy
 
-REST calls retry connection failures, HTTP 408/429, and 5xx responses with bounded backoff and `Retry-After` support. TypeSafe calls use three SDK retries. Optional live derivatives/order-book/liquidation failures remain explicit in State rather than disappearing.
-
-## Legacy one-shot commands
-
-The original 60-minute prototype remains available:
+Requires Node.js 20.19 or newer and a Cloudflare account.
 
 ```powershell
-npm run predict
-npm run snapshot
+npm install
+npx wrangler login
+npm run cloudflare:migrate
+npx wrangler secret put TYPESAFE_API_KEY
+npm run cloudflare:deploy
 ```
 
-Use the continuous experiment for scored testing.
+Cloudflare configuration is in `wrangler.jsonc`; the D1 schema is in `migrations/`.
 
-## Checks
+Useful Cloudflare commands:
 
 ```powershell
+npm run cloudflare:check   # Build and validate without publishing
+npm run cloudflare:dev     # Local Worker/D1 development
+npm run cloudflare:deploy  # Build and publish
+```
+
+## Local experiment
+
+Copy `.env.example` to `.env`, add `TYPESAFE_API_KEY`, and run:
+
+```powershell
+npm install
+npm run experiment
+```
+
+The local runner uses the same natural cadence and writes append-only records to `data/`. Restarting is safe; existing boundary IDs are not duplicated and overdue forecasts are settled on startup.
+
+Other useful commands:
+
+```powershell
+npm run dashboard         # Read-only dashboard at http://127.0.0.1:3000
+npm run experiment:once   # Immediate four-horizon diagnostic batch
+npm run experiment:state  # Inspect State without calling Jev
+npm run settle            # Settle due local forecasts
+npm run report            # Regenerate local report files
 npm run check
 npm test
 ```
+
+## Stored data
+
+Local mode writes:
+
+- `data/predictions.jsonl`: complete States and probability distributions.
+- `data/settlements.jsonl`: target prices, realized returns, accuracy, Brier score, and log loss.
+- `data/report.json` and `data/report.md`: aggregate summaries.
+
+Cloudflare stores equivalent JSON records in indexed D1 tables. Credentials are never written to State, dashboard responses, or prediction records.
+
+## Reliability
+
+- Market HTTP requests use bounded retries and timeouts.
+- TypeSafe requests use SDK retries and respect rate-limit guidance.
+- Optional derivatives, order-book, or liquidation failures remain explicit in State.
+- Forecast and settlement IDs are unique, making repeated scheduled delivery safe.
+- The public API is read-only and returns no secret or TypeSafe usage metadata.
+- Dashboard and API responses include restrictive security headers.
+
+## Netlify dashboard deployment
+
+This repository deploys only the BTC–Jev dashboard. `netlify.toml` builds `web/dist`, serves the app beneath `/btc-jev`, proxies `/btc-jev/api/*` to the Cloudflare Worker, and redirects the project deployment root to the canonical RG Lab address. The hub and its cross-project routing live in `WebGrga/rg-lab`.

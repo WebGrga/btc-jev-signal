@@ -17,6 +17,7 @@ import type {
   PredictionBatch,
   Settlement,
 } from "./experiment-types.js";
+import { horizonsDueAt } from "./experiment-schedule.js";
 
 const MINUTE_MS = 60_000;
 const FIFTEEN_MINUTES_MS = 15 * MINUTE_MS;
@@ -132,7 +133,9 @@ export async function runForecastCycle(
     return null;
   }
   const state = await buildExperimentState(boundaryMs, cadence, liquidationWindowMs);
-  const prediction = await predictExperiment(state);
+  const prediction = cadence === "scheduled_15m"
+    ? await predictExperiment(state, horizonsDueAt(boundaryMs))
+    : await predictExperiment(state);
   const batch: PredictionBatch = {
     batch_id: id,
     created_at_utc: new Date().toISOString(),
