@@ -57,7 +57,7 @@ export interface DashboardData {
   schedule: typeof HORIZON_SCHEDULE;
   methodology: {
     scoring_policy: "natural_non_overlapping_v1";
-    target_price_source: "Binance Spot completed 1m candle close";
+    target_price_source: string;
     legacy_overlapping_forecasts_retained: true;
   };
 }
@@ -150,7 +150,7 @@ export function buildDashboardData(
     schedule: HORIZON_SCHEDULE,
     methodology: {
       scoring_policy: "natural_non_overlapping_v1",
-      target_price_source: "Binance Spot completed 1m candle close",
+      target_price_source: latestBatch?.state.snapshot.anchor_price_source ?? "Completed 1m spot candle close at the target timestamp",
       legacy_overlapping_forecasts_retained: true,
     },
   };

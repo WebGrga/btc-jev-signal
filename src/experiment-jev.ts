@@ -8,14 +8,14 @@ import type {
 import { HORIZON_ORDER } from "./experiment-schedule.js";
 
 const CRITERIA = {
-  higher: "BTCUSDT spot price at the exact target timestamp is greater than `snapshot.anchor_price_usdt`.",
-  lower: "BTCUSDT spot price at the exact target timestamp is less than `snapshot.anchor_price_usdt`.",
+  higher: "The BTC spot price for `snapshot.symbol` at the exact target timestamp is greater than `snapshot.anchor_price_usdt`.",
+  lower: "The BTC spot price for `snapshot.symbol` at the exact target timestamp is less than `snapshot.anchor_price_usdt`.",
 } as const;
 
 function directionQuestion(horizon: "15m" | "1h" | "4h") {
   return choice(
     {
-      task: `Which ${horizon} BTCUSDT spot-price direction is more probable?`,
+      task: `Which ${horizon} BTC spot-price direction is more probable for the supplied market?`,
       reference_price: "Use `snapshot.anchor_price_usdt` at `snapshot.timestamp_utc`.",
       target: `Use the exact timestamp in \`targets.${horizon}\`.`,
       evidence: "Use the complete supplied state, including all 15m, 1h, and 4h feature blocks.",
@@ -33,7 +33,7 @@ const horizonQuestions = {
 
 const eodQuestion = choice(
   {
-    task: "Which BTCUSDT spot-price direction is more probable at the end of the current UTC day?",
+    task: "Which BTC spot-price direction is more probable for the supplied market at the end of the current UTC day?",
     reference_price: "Use `snapshot.anchor_price_usdt` at `snapshot.timestamp_utc`.",
     target: "Use the exact timestamp in `targets.end_of_utc_day`.",
     evidence: "Use the observed market state and the three probability distributions in `horizon_forecasts`.",

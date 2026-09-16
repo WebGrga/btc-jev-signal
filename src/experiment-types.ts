@@ -52,10 +52,10 @@ export interface ExperimentState {
     collected_at_utc: string;
     collection_lag_ms: number;
     cadence: "scheduled_15m" | "manual_once";
-    symbol: "BTCUSDT";
-    quote_asset: "USDT";
+    symbol: "BTCUSDT" | "BTCUSD";
+    quote_asset: "USDT" | "USD";
     anchor_price_usdt: number;
-    anchor_price_source: "Binance Spot completed 1m candle close";
+    anchor_price_source: string;
   };
   targets: {
     "15m": string;
@@ -86,9 +86,9 @@ export interface ExperimentState {
   liquidations: MarketState["liquidations"];
   order_book: MarketState["order_book"];
   sources: {
-    spot: "Binance Spot public market data";
-    perpetual_futures: "Binance USD-M Futures public market data";
-    liquidations: "Binance USD-M Futures public BTCUSDT liquidation WebSocket";
+    spot: string;
+    perpetual_futures: string;
+    liquidations: string;
   };
 }
 
@@ -132,7 +132,7 @@ export interface Settlement {
   predicted_probability: number | null;
   brier_score: number | null;
   log_loss: number | null;
-  target_price_source: "Binance Spot completed 1m candle close";
+  target_price_source: string;
 }
 
 export interface HorizonReport {

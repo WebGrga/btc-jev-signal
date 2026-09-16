@@ -2,20 +2,27 @@ import { atr, ema, macd, rsi, sma } from "./indicators.js";
 import type { ExperimentState, Timeframe, TimeframeFeatures } from "./experiment-types.js";
 import type { Candle, MarketState } from "./types.js";
 
-const SPOT_BASE = "https://data-api.binance.vision";
+const SPOT_BASE = "https://api.kraken.com";
 const FUTURES_BASE = "https://fapi.binance.com";
-const SYMBOL = "BTCUSDT";
+const SPOT_PAIR = "XBTUSD";
+const FUTURES_SYMBOL = "BTCUSDT";
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 const FINALIZATION_TIMEOUT_MS = 60_000;
+const KRAKEN_REQUEST_SPACING_MS = 1_250;
 const INTERVAL_MS = { "1m": MINUTE_MS, "15m": 15 * MINUTE_MS, "1h": 60 * MINUTE_MS, "4h": 240 * MINUTE_MS, "1d": DAY_MS } as const;
 
-type BinanceKline = [number, string, string, string, string, string, number, string, number, string, string, string];
+type KrakenOhlcRow = [number, string, string, string, string, string, string, number];
+type KrakenDepthRow = [string, string, number];
+interface KrakenResponse<T> { error: string[]; result: T }
 interface PremiumIndex { markPrice: string; indexPrice: string; lastFundingRate: string; nextFundingTime: number }
 interface OpenInterest { openInterest: string; time: number }
 interface OpenInterestHistory { sumOpenInterest: string; timestamp: number }
-interface Depth { bids: [string, string][]; asks: [string, string][] }
+interface Depth { bids: KrakenDepthRow[]; asks: KrakenDepthRow[] }
 interface ForceOrderEvent { e: "forceOrder"; o: { s: string; S: "BUY" | "SELL"; q: string; z?: string; p: string; ap: string } }
+
+let krakenQueue: Promise<void> = Promise.resolve();
+let lastKrakenRequestFinishedAt = 0;
 
 function round(value: number, digits = 6): number { return Number(value.toFixed(digits)); }
 function numeric(value: string, field: string): number {
@@ -46,18 +53,53 @@ async function fetchJson<T>(input: URL, attempts = 4): Promise<T> {
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-function parseKline(row: BinanceKline): Candle {
+function fetchKrakenJson<T>(input: URL): Promise<KrakenResponse<T>> {
+  const request = krakenQueue.then(async () => {
+    let lastError = "Unknown Kraken API error";
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const spacing = Math.max(0, KRAKEN_REQUEST_SPACING_MS - (Date.now() - lastKrakenRequestFinishedAt));
+      if (spacing > 0) await new Promise((resolve) => setTimeout(resolve, spacing));
+      const response = await fetchJson<KrakenResponse<T>>(input);
+      lastKrakenRequestFinishedAt = Date.now();
+      if (response.error.length === 0) return response;
+      lastError = response.error.join(", ");
+      if (!response.error.some((message) => message.includes("Too many requests"))) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1_000 * 2 ** attempt, 8_000)));
+    }
+    throw new Error(`Kraken API returned ${lastError}`);
+  });
+  krakenQueue = request.then(() => undefined, () => undefined);
+  return request;
+}
+
+function parseKline(row: KrakenOhlcRow, interval: keyof typeof INTERVAL_MS): Candle {
+  const openTimeMs = row[0] * 1_000;
+  const baseVolume = numeric(row[6], "baseVolume");
+  const volumeWeightedPrice = numeric(row[5], "volumeWeightedPrice");
   return {
-    openTimeMs: row[0], open: numeric(row[1], "open"), high: numeric(row[2], "high"), low: numeric(row[3], "low"),
-    close: numeric(row[4], "close"), baseVolume: numeric(row[5], "baseVolume"), closeTimeMs: row[6],
-    quoteVolume: numeric(row[7], "quoteVolume"), trades: row[8], takerBuyBaseVolume: numeric(row[9], "takerBuyBaseVolume"),
-    takerBuyQuoteVolume: numeric(row[10], "takerBuyQuoteVolume"),
+    openTimeMs, open: numeric(row[1], "open"), high: numeric(row[2], "high"), low: numeric(row[3], "low"),
+    close: numeric(row[4], "close"), baseVolume, closeTimeMs: openTimeMs + INTERVAL_MS[interval] - 1,
+    quoteVolume: baseVolume * volumeWeightedPrice, trades: row[7], takerBuyBaseVolume: 0,
+    takerBuyQuoteVolume: 0,
   };
 }
 
 async function fetchCandles(interval: keyof typeof INTERVAL_MS, limit: number, endTimeMs: number): Promise<Candle[]> {
-  const rows = await fetchJson<BinanceKline[]>(url(SPOT_BASE, "/api/v3/klines", { symbol: SYMBOL, interval, limit: String(limit), endTime: String(endTimeMs) }));
-  return rows.map(parseKline);
+  const sinceSeconds = Math.floor((endTimeMs - (limit + 5) * INTERVAL_MS[interval]) / 1_000);
+  const response = await fetchKrakenJson<Record<string, KrakenOhlcRow[] | number>>(
+    url(SPOT_BASE, "/0/public/OHLC", {
+      pair: SPOT_PAIR,
+      interval: String(INTERVAL_MS[interval] / MINUTE_MS),
+      since: String(Math.max(0, sinceSeconds)),
+      assetVersion: "1",
+    }),
+  );
+  const rows = Object.entries(response.result).find(([key, value]) => key !== "last" && Array.isArray(value))?.[1];
+  if (!Array.isArray(rows)) throw new Error("Kraken OHLC response contained no candle rows");
+  return (rows as KrakenOhlcRow[])
+    .map((row) => parseKline(row, interval))
+    .filter((candle) => candle.openTimeMs < endTimeMs)
+    .slice(-limit);
 }
 
 function expectedCandleCloseMs(interval: keyof typeof INTERVAL_MS, boundaryMs: number): number {
@@ -76,7 +118,7 @@ async function fetchFinalizedCandles(interval: "1m" | "15m" | "1h" | "4h", limit
     if (latestClose === expectedClose) return candles;
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   } while (Date.now() < deadline);
-  throw new Error(`Timed out waiting for Binance ${interval} candle ending ${iso(expectedClose)}; latest was ${latestClose === null ? "none" : iso(latestClose)}`);
+  throw new Error(`Timed out waiting for Kraken ${interval} candle ending ${iso(expectedClose)}; latest was ${latestClose === null ? "none" : iso(latestClose)}`);
 }
 
 function referenceClose(candles: readonly Candle[], targetMs: number): Candle {
@@ -119,9 +161,9 @@ function oiChange(history: readonly OpenInterestHistory[], periodsAgo: number): 
 async function fetchDerivatives(): Promise<MarketState["perpetual_futures"]> {
   try {
     const [premium, openInterest, history] = await Promise.all([
-      fetchJson<PremiumIndex>(url(FUTURES_BASE, "/fapi/v1/premiumIndex", { symbol: SYMBOL })),
-      fetchJson<OpenInterest>(url(FUTURES_BASE, "/fapi/v1/openInterest", { symbol: SYMBOL })),
-      fetchJson<OpenInterestHistory[]>(url(FUTURES_BASE, "/futures/data/openInterestHist", { symbol: SYMBOL, period: "5m", limit: "13" })),
+      fetchJson<PremiumIndex>(url(FUTURES_BASE, "/fapi/v1/premiumIndex", { symbol: FUTURES_SYMBOL })),
+      fetchJson<OpenInterest>(url(FUTURES_BASE, "/fapi/v1/openInterest", { symbol: FUTURES_SYMBOL })),
+      fetchJson<OpenInterestHistory[]>(url(FUTURES_BASE, "/futures/data/openInterestHist", { symbol: FUTURES_SYMBOL, period: "5m", limit: "13" })),
     ]);
     const mark = numeric(premium.markPrice, "markPrice");
     const oi = numeric(openInterest.openInterest, "openInterest");
@@ -134,7 +176,11 @@ async function fetchDerivatives(): Promise<MarketState["perpetual_futures"]> {
 async function fetchOrderBook(): Promise<MarketState["order_book"]> {
   const asOf = Date.now();
   try {
-    const depth = await fetchJson<Depth>(url(SPOT_BASE, "/api/v3/depth", { symbol: SYMBOL, limit: "20" }));
+    const response = await fetchKrakenJson<Record<string, Depth>>(
+      url(SPOT_BASE, "/0/public/Depth", { pair: SPOT_PAIR, count: "20", assetVersion: "1" }),
+    );
+    const depth = Object.values(response.result)[0];
+    if (!depth) throw new Error("Kraken order book response contained no market");
     const bids = depth.bids.map(([price, quantity]) => [numeric(price, "bid.price"), numeric(quantity, "bid.quantity")] as const);
     const asks = depth.asks.map(([price, quantity]) => [numeric(price, "ask.price"), numeric(quantity, "ask.quantity")] as const);
     const bestBid = bids[0]?.[0]; const bestAsk = asks[0]?.[0];
@@ -159,7 +205,7 @@ async function observeLiquidations(windowMs: number): Promise<MarketState["liqui
     socket.addEventListener("message", (event) => {
       try {
         const parsed = JSON.parse(String(event.data)) as ForceOrderEvent;
-        if (parsed.e !== "forceOrder" || parsed.o.s !== SYMBOL) return;
+        if (parsed.e !== "forceOrder" || parsed.o.s !== FUTURES_SYMBOL) return;
         const price = numeric(parsed.o.ap === "0" ? parsed.o.p : parsed.o.ap, "liquidation.price");
         const quantity = numeric(parsed.o.z ?? parsed.o.q, "liquidation.quantity");
         count += 1;
@@ -175,7 +221,7 @@ async function observeLiquidations(windowMs: number): Promise<MarketState["liqui
 
 async function buildAuxiliary(liquidationWindowMs: number): Promise<Pick<ExperimentState, "perpetual_futures" | "liquidations" | "order_book" | "sources">> {
   const [perpetualFutures, liquidations, orderBook] = await Promise.all([fetchDerivatives(), observeLiquidations(liquidationWindowMs), fetchOrderBook()]);
-  return { perpetual_futures: perpetualFutures, liquidations, order_book: orderBook, sources: { spot: "Binance Spot public market data", perpetual_futures: "Binance USD-M Futures public market data", liquidations: "Binance USD-M Futures public BTCUSDT liquidation WebSocket" } };
+  return { perpetual_futures: perpetualFutures, liquidations, order_book: orderBook, sources: { spot: "Kraken Spot public BTC/USD market data", perpetual_futures: "Binance USD-M Futures public BTCUSDT market data", liquidations: "Binance USD-M Futures public BTCUSDT liquidation WebSocket" } };
 }
 
 export async function fetchCloudflareAlignedClose(timestampMs: number): Promise<number> {
@@ -192,7 +238,7 @@ export async function buildCloudflareExperimentState(boundaryMs: number, liquida
   ]);
   const completedOneMinute = oneMinute.filter((candle) => candle.closeTimeMs < boundaryMs);
   const anchor = completedOneMinute.at(-1);
-  if (!anchor || anchor.closeTimeMs !== boundaryMs - 1) throw new Error("The exact boundary-aligned BTCUSDT 1m close is unavailable");
+  if (!anchor || anchor.closeTimeMs !== boundaryMs - 1) throw new Error("The exact boundary-aligned Kraken BTC/USD 1m close is unavailable");
   const anchorPrice = anchor.close;
   const returnMinutes = { "1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240 } as const;
   const returns = {} as ExperimentState["returns_pct"];
@@ -206,7 +252,7 @@ export async function buildCloudflareExperimentState(boundaryMs: number, liquida
   const collected = Date.now();
   return {
     schema_version: "2.0.0",
-    snapshot: { timestamp_utc: iso(boundaryMs), collected_at_utc: iso(collected), collection_lag_ms: collected - boundaryMs, cadence: "scheduled_15m", symbol: SYMBOL, quote_asset: "USDT", anchor_price_usdt: round(anchorPrice, 2), anchor_price_source: "Binance Spot completed 1m candle close" },
+    snapshot: { timestamp_utc: iso(boundaryMs), collected_at_utc: iso(collected), collection_lag_ms: collected - boundaryMs, cadence: "scheduled_15m", symbol: "BTCUSD", quote_asset: "USD", anchor_price_usdt: round(anchorPrice, 2), anchor_price_source: "Kraken Spot completed BTC/USD 1m candle close" },
     targets: { "15m": iso(boundaryMs + 15 * MINUTE_MS), "1h": iso(boundaryMs + 60 * MINUTE_MS), "4h": iso(boundaryMs + 240 * MINUTE_MS), end_of_utc_day: iso(dayEnd) },
     returns_pct: returns,
     timeframes: { "15m": featureBlock("15m", fifteenMinute, boundaryMs, anchorPrice), "1h": featureBlock("1h", oneHour, boundaryMs, anchorPrice), "4h": featureBlock("4h", fourHour, boundaryMs, anchorPrice) },
