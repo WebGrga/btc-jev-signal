@@ -1,6 +1,6 @@
 # BTC–Jev Signal
 
-A public, non-trading BTC forecasting experiment using TypeSafe Jev with public Kraken spot and Binance futures market data.
+A public, non-trading BTC forecasting experiment using TypeSafe Jev with public Bybit spot and perpetual-futures market data.
 
 Public dashboard: **https://lab.rokogrga.com/btc-jev**
 
@@ -31,15 +31,15 @@ Every State uses normalized UTC ISO 8601 timestamps and completed candles only.
 
 | Measurement | Source and definition |
 | --- | --- |
-| Anchor and realized target | Cloudflare: Kraken Spot completed BTC/USD 1-minute candle. Local runner: Binance Spot completed BTCUSDT 1-minute candle. |
+| Anchor and realized target | Bybit Spot completed BTCUSDT 1-minute candle. |
 | Returns | 1m, 5m, 15m, 1h, and 4h from the runtime's spot source |
 | 15m / 1h / 4h indicators | RSI(14), MACD(12,26,9), ATR(14), SMA/EMA 20/50/200, price distances, bar returns, and volume ratios from completed spot candles |
 | UTC session | Spot open, high, low, volume, return from open, and minutes to 00:00 UTC |
-| Perpetual futures | Funding, mark/index price, open interest, and OI changes from Binance USD-M Futures |
-| Liquidations | Short timestamped observation of Binance's public BTCUSDT force-order WebSocket |
-| Order book | Cloudflare: Kraken Spot top-20 levels. Local runner: Binance Spot top-20 levels. Both expose bid/ask notionals, spread, and imbalance. |
+| Perpetual futures | Funding, mark/index price, open interest, and OI changes from Bybit USDT Perpetual |
+| Liquidations | Short timestamped observation of Bybit's public BTCUSDT all-liquidation WebSocket |
+| Order book | Bybit Spot top-20 levels, exposing bid/ask notionals, spread, and imbalance. |
 
-The State always identifies `snapshot.symbol`, `snapshot.quote_asset`, and every source string. Some stable JSON field names still end in `_usdt` for backward compatibility; in Cloudflare records those monetary values are USD, as declared by `quote_asset: "USD"`.
+The State always identifies `snapshot.symbol`, `snapshot.quote_asset`, and every source string. Monetary values are denominated in USDT and retain stable `_usdt` JSON field names.
 
 The 15m, 1h, and 4h questions share one State and run independently in one TypeSafe request when they are due together. The day-close question is a second-stage request that can consume the three horizon distributions. The API key stays server-side.
 
@@ -61,7 +61,7 @@ Small samples are descriptive only. Jev confidence describes concentration in th
 - Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
 - Cloudflare D1 stores prediction batches and settlements.
 - Cloudflare Worker Secrets stores `TYPESAFE_API_KEY`.
-- One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Kraken candle to finalize before collection.
+- One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Bybit Spot candle to finalize before collection.
 
 The production database is intentionally separate from `data/*.jsonl`. A new deployment starts a clean online history unless a local history import is deliberately approved and performed.
 

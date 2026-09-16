@@ -58,7 +58,7 @@ function settlementFor(forecast: Forecast, targetPrice: number): Settlement {
     predicted_probability: probability,
     brier_score: scorable ? round((forecast.probabilities.higher - (actual === "higher" ? 1 : 0)) ** 2) : null,
     log_loss: probability === null ? null : round(-Math.log(Math.max(1e-12, probability))),
-    target_price_source: "Kraken Spot completed BTC/USD 1m candle close",
+    target_price_source: "Bybit Spot completed BTCUSDT 1m candle close",
   };
 }
 
