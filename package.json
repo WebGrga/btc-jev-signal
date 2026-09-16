@@ -1,0 +1,40 @@
+{
+  "name": "btc-jev-signal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Continuous multi-horizon BTC market experiment using Jev probability signals.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepredict": "tsc",
+    "predict": "node dist/src/cli.js predict",
+    "presnapshot": "tsc",
+    "snapshot": "node dist/src/cli.js snapshot",
+    "preexperiment": "tsc",
+    "experiment": "node dist/src/experiment-cli.js run",
+    "preexperiment:once": "tsc",
+    "experiment:once": "node dist/src/experiment-cli.js once",
+    "preexperiment:state": "tsc",
+    "experiment:state": "node dist/src/experiment-cli.js state",
+    "presettle": "tsc",
+    "settle": "node dist/src/experiment-cli.js settle",
+    "prereport": "tsc",
+    "report": "node dist/src/experiment-cli.js report",
+    "check": "tsc --noEmit",
+    "pretest": "tsc",
+    "test": "node --test dist/test/all.test.js"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0",
+    "dotenv": "17.4.2",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "@types/ws": "8.18.1",
+    "typescript": "7.0.2"
+  }
+}
