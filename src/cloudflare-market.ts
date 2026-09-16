@@ -217,7 +217,7 @@ export async function fetchCloudflareAlignedClose(timestampMs: number): Promise<
 export async function buildCloudflareExperimentState(boundaryMs: number, liquidationWindowMs: number): Promise<ExperimentState> {
   if (boundaryMs % MINUTE_MS !== 0) throw new Error("Experiment boundary must align to a UTC minute");
   const [auxiliary, oneMinute, fifteenMinute, oneHour, fourHour, dayRows] = await Promise.all([
-    buildAuxiliary(liquidationWindowMs), fetchFinalizedCandles("1m", 500, boundaryMs), fetchFinalizedCandles("15m", 500, boundaryMs), fetchFinalizedCandles("1h", 500, boundaryMs), fetchFinalizedCandles("4h", 500, boundaryMs), fetchCandles("1d", 2, boundaryMs - 1),
+    buildAuxiliary(liquidationWindowMs), fetchFinalizedCandles("1m", 250, boundaryMs), fetchFinalizedCandles("15m", 500, boundaryMs), fetchFinalizedCandles("1h", 500, boundaryMs), fetchFinalizedCandles("4h", 500, boundaryMs), fetchCandles("1d", 2, boundaryMs - 1),
   ]);
   const completedOneMinute = oneMinute.filter((candle) => candle.closeTimeMs < boundaryMs);
   const anchor = completedOneMinute.at(-1);
