@@ -9,7 +9,10 @@ const FUTURES_SYMBOL = "BTCUSDT";
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 const FINALIZATION_TIMEOUT_MS = 60_000;
-const KRAKEN_REQUEST_SPACING_MS = 1_250;
+// Kraken's public REST counter decays more slowly than one request per second.
+// Cloudflare egress IPs can also be shared, so leave enough room between calls
+// to avoid turning a complete multi-timeframe snapshot into a burst.
+const KRAKEN_REQUEST_SPACING_MS = 3_500;
 const INTERVAL_MS = { "1m": MINUTE_MS, "15m": 15 * MINUTE_MS, "1h": 60 * MINUTE_MS, "4h": 240 * MINUTE_MS, "1d": DAY_MS } as const;
 
 type KrakenOhlcRow = [number, string, string, string, string, string, string, number];

@@ -27,6 +27,10 @@ interface Env {
 const FIFTEEN_MINUTES_MS = 15 * 60_000;
 const SETTLEMENT_GRACE_MS = 5_000;
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function round(value: number, digits = 6): number { return Number(value.toFixed(digits)); }
 function batchId(timestampIso: string): string { return `batch_${timestampIso.replace(/[-:.]/g, "")}`; }
 function actualDirection(origin: number, target: number): ActualDirection {
@@ -146,9 +150,41 @@ export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const boundaryMs = Math.floor(controller.scheduledTime / FIFTEEN_MINUTES_MS) * FIFTEEN_MINUTES_MS;
-      const settled = await settleDue(env, controller.scheduledTime);
-      await forecastBoundary(env, boundaryMs);
-      console.log(JSON.stringify({ event: "forecast_cycle", boundary_utc: new Date(boundaryMs).toISOString(), settled }));
+      let forecastError: string | null = null;
+      let settlementError: string | null = null;
+      let settled = 0;
+
+      // A delayed settlement must never prevent the new forecast from running.
+      try {
+        await forecastBoundary(env, boundaryMs);
+      } catch (error) {
+        forecastError = errorMessage(error);
+      }
+
+      try {
+        settled = await settleDue(env, controller.scheduledTime);
+      } catch (error) {
+        settlementError = errorMessage(error);
+      }
+
+      const result = {
+        event: "forecast_cycle",
+        boundary_utc: new Date(boundaryMs).toISOString(),
+        forecast_ok: forecastError === null,
+        settlement_ok: settlementError === null,
+        settled,
+        forecast_error: forecastError,
+        settlement_error: settlementError,
+      };
+
+      if (forecastError || settlementError) {
+        console.error(JSON.stringify(result));
+        throw new Error(
+          `Forecast cycle incomplete: ${[forecastError, settlementError].filter(Boolean).join(" | ")}`,
+        );
+      }
+
+      console.log(JSON.stringify(result));
     })());
   },
 } satisfies ExportedHandler<Env>;

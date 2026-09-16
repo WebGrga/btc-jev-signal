@@ -50,6 +50,8 @@ button, summary, a { -webkit-tap-highlight-color: transparent; }
 .appbar nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
 .appbar nav a:hover, .appbar nav a:focus-visible { color: var(--text); }
 .research-chip { justify-self: end; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--muted); font: 11px var(--mono); text-transform: uppercase; }
+.research-chip.predictor-live { border-color: #285d46; color: #74d6a4; }
+.research-chip.predictor-stale { border-color: #765a24; color: #ffd886; }
 .error-banner { padding: 8px 16px; border-bottom: 1px solid #5e4920; background: #2a2110; color: #ffd886; font-size: 13px; text-align: center; }
 
 .dashboard { width: min(1500px, calc(100% - 32px)); margin: 0 auto; padding: 18px 0 72px; }

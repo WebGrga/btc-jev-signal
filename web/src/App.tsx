@@ -23,6 +23,7 @@ const CADENCE_LABELS: Record<Horizon, string> = {
   eod: "Once per UTC day",
 };
 const REFRESH_MS = 60_000;
+const PREDICTOR_STALE_AFTER_MS = 30 * 60_000;
 
 function formatUsd(value: number | null, digits = 2): string {
   if (value === null) return "Unavailable";
@@ -250,11 +251,13 @@ function RecentForecasts({ forecasts }: { forecasts: ForecastView[] }): React.JS
 
 function Dashboard({ data, error }: { data: DashboardData; error: string | null }): React.JSX.Element {
   const latest = data.latest_batch!;
+  const predictorIsStale = Date.now() - Date.parse(latest.state.snapshot.timestamp_utc) > PREDICTOR_STALE_AFTER_MS;
   const forecastByHorizon = useMemo(() => new Map(data.latest_forecasts.map((forecast) => [forecast.horizon, forecast])), [data.latest_forecasts]);
   return (
     <div className="app">
-      <header className="appbar"><div className="brand-path"><a href="https://lab.rokogrga.com/" className="brand">RG Lab</a><span>/</span><a href="https://lab.rokogrga.com/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip">Public experiment</span></header>
+      <header className="appbar"><div className="brand-path"><a href="https://lab.rokogrga.com/" className="brand">RG Lab</a><span>/</span><a href="https://lab.rokogrga.com/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className={`research-chip ${predictorIsStale ? "predictor-stale" : "predictor-live"}`}>{predictorIsStale ? "Predictor stale" : "Predictor live"}</span></header>
       {error ? <div className="error-banner">Live refresh failed. Displaying the last successful response.</div> : null}
+      {predictorIsStale ? <div className="error-banner">Scheduled predictor is delayed. The newest successful Jev snapshot is {formatUtc(latest.state.snapshot.timestamp_utc)} UTC.</div> : null}
       <main id="top" className="dashboard">
         <section className="summary-strip">
           <div className="price-block"><span>BTC snapshot</span><strong>{formatUsd(latest.state.snapshot.anchor_price_usdt)}</strong></div>
