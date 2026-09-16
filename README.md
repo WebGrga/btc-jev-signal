@@ -6,7 +6,7 @@ Live hub: **https://btc-jev-signal.roko-experiments.workers.dev**
 
 BTC–Jev experiment: **https://btc-jev-signal.roko-experiments.workers.dev/btc-jev**
 
-The intended canonical addresses are `https://lab.rokogrga.com` and `https://lab.rokogrga.com/btc-jev` once the domain's authoritative DNS is moved to Cloudflare. The existing `www.rokogrga.com` website remains hosted by Netlify.
+Canonical public addresses: `https://lab.rokogrga.com` and `https://lab.rokogrga.com/btc-jev`. Netlify serves the static hub from this GitHub repository and proxies `/api/*` to the Cloudflare Worker. The existing `www.rokogrga.com` portfolio remains a separate Netlify project.
 
 This is a personal software experiment, not financial advice, investment research, or a trading service. It never places or prepares trades.
 
@@ -57,7 +57,7 @@ Small samples are descriptive only. Jev confidence describes concentration in th
 ## Cloudflare production architecture
 
 - Cloudflare Workers serves the API and runs the scheduled experiment.
-- Cloudflare Static Assets serves the compiled React dashboard.
+- Netlify serves the canonical `lab.rokogrga.com` frontend; Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
 - Cloudflare D1 stores prediction batches and settlements.
 - Cloudflare Worker Secrets stores `TYPESAFE_API_KEY`.
 - One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Kraken candle to finalize before collection.
@@ -127,3 +127,7 @@ Cloudflare stores equivalent JSON records in indexed D1 tables. Credentials are 
 - Forecast and settlement IDs are unique, making repeated scheduled delivery safe.
 - The public API is read-only and returns no secret or TypeSafe usage metadata.
 - Dashboard and API responses include restrictive security headers.
+
+## Netlify hub deployment
+
+The root route is the RG Lab project index and `/btc-jev` is the experiment dashboard. `netlify.toml` builds `web/dist`, proxies the read-only API to Cloudflare, and applies the single-page-app fallback required for direct visits to `/btc-jev`.
