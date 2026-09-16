@@ -35,6 +35,52 @@ npm run report
 
 Restarting `npm run experiment` is safe. Existing boundary IDs are not duplicated, and overdue forecasts are settled on startup.
 
+## Public dashboard
+
+The repository includes a responsive, read-only React dashboard. It shows the latest four Jev distributions, confidence, probability history, scored performance, recent calls, and the main numeric measurements in the latest State.
+
+Build and view it locally:
+
+```powershell
+npm run dashboard
+```
+
+Open `http://127.0.0.1:3000`. This command only serves the dashboard and reads the experiment files already on disk. It does not start a second forecasting loop.
+
+The hosted entry point serves the same dashboard and runs the continuous experiment in one process:
+
+```powershell
+npm run build
+npm start
+```
+
+Set `RUN_EXPERIMENT=false` when a hosted instance should display existing data without issuing new forecasts. The TypeSafe API key remains server-side and is never included in the dashboard response.
+
+## Fastest hosting path
+
+Railway is the shortest path for this version because the project is already a long-running Node process and needs durable storage. The included `railway.toml` builds the TypeScript server and React dashboard, starts the combined hosted service, and checks `/api/health`.
+
+1. Create a Railway project from the GitHub repository.
+2. Add one persistent volume mounted at `/app/data`.
+3. Keep the service at one replica so only one scheduler issues each forecast boundary.
+4. Add these service variables:
+
+```text
+TYPESAFE_API_KEY=your_key
+EXPERIMENT_DATA_DIR=/app/data
+HOST=0.0.0.0
+RUN_EXPERIMENT=true
+LIQUIDATION_WINDOW_MS=3000
+BOUNDARY_DELAY_MS=10000
+CANDLE_FINALIZATION_TIMEOUT_MS=60000
+```
+
+5. Generate a Railway domain or attach a custom domain.
+
+The deployed volume starts with a new result history unless existing JSONL files are copied into it. Keep the local experiment as the original record until that migration is performed and verified.
+
+For a future project hub, keep this dynamic experiment on Railway and place mostly static project pages on Cloudflare Pages. A single custom domain can route the hub at the root and individual experiments through subdomains or project paths. This avoids paying for an always-running server for every static showcase while preserving a simple Node host for projects that need schedulers or secret API keys.
+
 ## What is forecast
 
 Every scheduled batch has the same anchor: the Binance BTCUSDT 1-minute candle close at the exact UTC 15-minute boundary.
