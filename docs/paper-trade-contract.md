@@ -65,6 +65,10 @@ where possible. This keeps request count bounded, but question count and token
 usage still need to be observed. Keep the initial policy library small. The
 existing Cloudflare request cap continues to apply.
 
+This follows TypeSafe's documented distinction between [Choice](https://docs.typesafe.ai/primitives/choice),
+[Noul](https://docs.typesafe.ai/primitives/noul), shared [State](https://docs.typesafe.ai/concepts/state),
+and [confidence](https://docs.typesafe.ai/confidence).
+
 ## Proposed proposal record
 
 The first schema is versioned (`paper_trade_proposal_v1`) and contains at least:
