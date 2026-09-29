@@ -65,6 +65,25 @@ Small samples are descriptive only. Jev confidence describes concentration in th
 
 The production database is intentionally separate from `data/*.jsonl`. A new deployment starts a clean online history unless a local history import is deliberately approved and performed.
 
+### Cloudflare usage guard
+
+The Worker allows at most 97 TypeSafe requests per UTC day by default: 96 scheduled horizon batches plus the separate UTC day-close request. `TYPESAFE_DAILY_REQUEST_LIMIT` in `wrangler.jsonc` can lower or raise that positive whole-number limit (maximum 10,000). Each scheduled boundary is claimed once in D1, and each TypeSafe request reserves one daily slot before it is sent. Reservations count conservatively, even if the provider request later fails. The Worker disables SDK retries so one reservation cannot fan out into extra TypeSafe attempts. Local CLI runs are not covered by this Cloudflare-only limit.
+
+The D1 control row provides a pause switch. Run either command from the repository with Wrangler authenticated to this Cloudflare account:
+
+```powershell
+# Pause scheduled collection and settlement fetches
+npx wrangler d1 execute btc-jev-signal --remote --command "UPDATE experiment_control SET paused = 1, updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE control_id = 'collection';"
+
+# Resume
+npx wrangler d1 execute btc-jev-signal --remote --command "UPDATE experiment_control SET paused = 0, updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE control_id = 'collection';"
+
+# Inspect today's request count and the latest scheduled runs
+npx wrangler d1 execute btc-jev-signal --remote --command "SELECT utc_day, COUNT(*) AS requests FROM typesafe_request_reservations WHERE utc_day = strftime('%Y-%m-%d','now') GROUP BY utc_day; SELECT boundary_utc, status, requests_used, request_limit, skipped_reason FROM scheduled_runs ORDER BY boundary_utc DESC LIMIT 20;"
+```
+
+Apply the D1 migration before deploying the Worker so the guard tables and default control row exist. The D1 pause stops scheduled market collection, Jev calls, and settlements after the next handler checks it; scheduled Worker invocations still occur. To stop those invocations too, disable/remove the Cron Trigger in Cloudflare. These application controls reduce runaway usage but cannot enforce a Cloudflare billing cap, include the fixed Workers Paid plan fee, or cover other Cloudflare products and local CLI usage. Cloudflare budget alerts remain warning-only.
+
 ### Deploy
 
 Requires Node.js 20.19 or newer and a Cloudflare account.
@@ -124,6 +143,7 @@ Cloudflare stores equivalent JSON records in indexed D1 tables. Credentials are 
 
 - Market HTTP requests use bounded retries and timeouts.
 - TypeSafe requests use SDK retries and respect rate-limit guidance.
+- The Cloudflare Worker reserves each TypeSafe call against a daily D1 limit and disables automatic retries; the local runner retains its separate SDK retry policy.
 - Optional derivatives, order-book, or liquidation failures remain explicit in State.
 - Forecast and settlement IDs are unique, making repeated scheduled delivery safe.
 - The public API is read-only and returns no secret or TypeSafe usage metadata.
