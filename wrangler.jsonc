@@ -24,7 +24,8 @@
     "crons": ["1,16,31,46 * * * *"]
   },
   "vars": {
-    "LIQUIDATION_WINDOW_MS": "3000"
+    "LIQUIDATION_WINDOW_MS": "3000",
+    "TYPESAFE_DAILY_REQUEST_LIMIT": "97"
   },
   "observability": {
     "enabled": true
