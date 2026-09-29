@@ -4,3 +4,4 @@ import "./experiment-schedule.test.js";
 import "./experiment-market.test.js";
 import "./indicators.test.js";
 import "./cloudflare-cost-guard.test.js";
+import "./paper-trade.test.js";

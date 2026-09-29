@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import type { PaperTradeScan } from "./paper-trade.js";
 import type { PredictionBatch, Settlement } from "./experiment-types.js";
 import { typesafeRequestKey, type TypeSafeRequestStage } from "./cloudflare-cost-guard.js";
 
@@ -42,6 +43,20 @@ export async function appendCloudflareSettlement(db: D1Database, settlement: Set
   const result = await db.prepare(
     "INSERT OR IGNORE INTO settlements (forecast_id, horizon, target_utc, settled_at_utc, data_json) VALUES (?, ?, ?, ?, ?)",
   ).bind(settlement.forecast_id, settlement.horizon, settlement.target_timestamp_utc, settlement.settled_at_utc, JSON.stringify(settlement)).run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function hasCloudflarePaperTradeScan(db: D1Database, scanId: string): Promise<boolean> {
+  const row = await db.prepare(
+    "SELECT scan_id FROM paper_trade_scans WHERE scan_id = ?",
+  ).bind(scanId).first<{ scan_id: string }>();
+  return row !== null;
+}
+
+export async function appendCloudflarePaperTradeScan(db: D1Database, scan: PaperTradeScan): Promise<boolean> {
+  const result = await db.prepare(
+    "INSERT OR IGNORE INTO paper_trade_scans (scan_id, snapshot_id, scanned_at_utc, outcome, reason_code, data_json) VALUES (?, ?, ?, ?, ?, ?)",
+  ).bind(scan.scan_id, scan.snapshot_id, scan.scanned_at_utc, scan.outcome, scan.reason_code, JSON.stringify(scan)).run();
   return (result.meta.changes ?? 0) > 0;
 }
 

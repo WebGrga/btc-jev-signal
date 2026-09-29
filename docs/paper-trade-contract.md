@@ -1,6 +1,6 @@
 # Jev paper-trade contract and evaluation design
 
-**Status:** design for review. Any first implementation remains paper-only.
+**Status:** implemented in the Cloudflare Worker as a paper-only decision record. Paper execution and dashboard display are follow-up work.
 
 ## Purpose
 
@@ -65,6 +65,21 @@ where possible. This keeps request count bounded, but question count and token
 usage still need to be observed. Keep the initial policy library small. The
 existing Cloudflare request cap continues to apply.
 
+The first implementation asks one `Choice` across `no_trade` and two fixed
+long-only policies, plus one `Noul` for each policy, in the same request. The
+v1 policies use a 1 ATR stop, targets at 1.5 or 2 ATR, and a four-hour maximum
+holding time. The deterministic scanner compares twice the completed 4h ATR
+with its estimated round-trip costs. It calls Jev only when this potential move
+exceeds the cost estimate and all required spot data is fresh. This threshold
+is a versioned starting rule, not a learned or validated trading edge.
+
+The initial cost estimate assumes 80 bps taker fee per side, the observed
+order-book spread for a round trip, and 5 bps slippage per side. The fee uses
+Kraken's current lowest-volume spot taker tier as a conservative reference;
+actual account and venue fees can differ. The assumed costs are recorded with
+each scan and must be reviewed/versioned before simulator results are treated
+as venue-specific. See [Kraken's fee schedule](https://www.kraken.com/features/fee-schedule).
+
 This follows TypeSafe's documented distinction between [Choice](https://docs.typesafe.ai/primitives/choice),
 [Noul](https://docs.typesafe.ai/primitives/noul), shared [State](https://docs.typesafe.ai/concepts/state),
 and [confidence](https://docs.typesafe.ai/confidence).
@@ -96,6 +111,14 @@ only when a versioned deterministic prefilter emits a candidate event. The first
 prefilter is intentionally simple and testable. It uses only information
 available at decision time, including data freshness and an estimated round-trip
 cost check. It must not be tuned on the final evaluation window.
+
+The Worker now records a scan for each unpaused scheduled market snapshot. A
+scan is idempotent by symbol, snapshot time, schema version, and prefilter
+version. No-candidate scans do not reserve or spend a TypeSafe request. Candidate
+requests reserve the `paper_trade_decision` stage under the existing daily cap;
+blocked requests and no-trade answers are retained in D1. Historical direction
+forecast rows remain available for the legacy report, but the Worker no longer
+creates new scheduled direction forecasts. The local legacy CLI is unchanged.
 
 Every scan records one of:
 

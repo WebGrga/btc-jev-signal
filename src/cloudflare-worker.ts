@@ -2,26 +2,21 @@
 
 import { buildDashboardData } from "./dashboard-data.js";
 import { buildCloudflareExperimentState, fetchCloudflareAlignedClose } from "./cloudflare-market.js";
-import { predictExperiment } from "./experiment-jev.js";
-import { horizonsDueAt } from "./experiment-schedule.js";
+import { assessPaperTradeCandidate, decidePaperTrade, makePaperTradeScan } from "./paper-trade.js";
 import { parseTypesafeDailyRequestLimit, utcDay } from "./cloudflare-cost-guard.js";
 import {
-  appendCloudflareBatch,
+  appendCloudflarePaperTradeScan,
   appendCloudflareSettlement,
   claimScheduledBoundary,
   countTypesafeRequests,
+  hasCloudflarePaperTradeScan,
   isCollectionPaused,
   loadCloudflareBatches,
   loadCloudflareSettlements,
   reserveTypesafeRequest,
   updateScheduledBoundary,
 } from "./cloudflare-store.js";
-import type {
-  ActualDirection,
-  Forecast,
-  PredictionBatch,
-  Settlement,
-} from "./experiment-types.js";
+import type { ActualDirection, Forecast, Settlement } from "./experiment-types.js";
 
 interface Env {
   DB: D1Database;
@@ -35,7 +30,6 @@ const FIFTEEN_MINUTES_MS = 15 * 60_000;
 const SETTLEMENT_GRACE_MS = 5_000;
 
 function round(value: number, digits = 6): number { return Number(value.toFixed(digits)); }
-function batchId(timestampIso: string): string { return `batch_${timestampIso.replace(/[-:.]/g, "")}`; }
 function actualDirection(origin: number, target: number): ActualDirection {
   if (target > origin) return "higher";
   if (target < origin) return "lower";
@@ -95,67 +89,57 @@ interface ForecastBoundaryResult {
   requestsUsed: number;
   requestDecisions: Array<{ stage: string; allowed: boolean; reason?: string }>;
   skippedReason: string | null;
+  scanOutcome: string | null;
 }
 
 async function forecastBoundary(env: Env, boundaryMs: number, requestLimit: number): Promise<ForecastBoundaryResult> {
-  const batches = await loadCloudflareBatches(env.DB);
-  const id = batchId(new Date(boundaryMs).toISOString());
   const boundaryUtc = new Date(boundaryMs).toISOString();
-  if (batches.some((batch) => batch.batch_id === id)) {
-    return { requestsUsed: await countTypesafeRequests(env.DB, utcDay()), requestDecisions: [], skippedReason: "batch_already_recorded" };
-  }
-  const due = horizonsDueAt(boundaryMs);
-  const utcDayAtStart = utcDay();
-  const currentUsage = await countTypesafeRequests(env.DB, utcDayAtStart);
-  if (due.length === 0) {
-    return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "no_horizons_due" };
-  }
-  if (currentUsage >= requestLimit) {
-    return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "daily_limit" };
+  const currentUsage = await countTypesafeRequests(env.DB, utcDay());
+  const snapshotId = `BTCUSD:${boundaryUtc}:2.0.0`;
+  const scanId = `scan:${snapshotId}:atr_cost_event_v1`;
+  if (await hasCloudflarePaperTradeScan(env.DB, scanId)) {
+    return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "scan_already_recorded", scanOutcome: null };
   }
   if (await isCollectionPaused(env.DB)) {
-    return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "paused" };
+    return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "paused", scanOutcome: null };
   }
   const state = await buildCloudflareExperimentState(boundaryMs, liquidationWindow(env));
-  const prediction = await predictExperiment(state, due, env.TYPESAFE_API_KEY, {
-    maxRetries: 0,
-    beforeRequest: async (stage) => {
-      if (await isCollectionPaused(env.DB)) return { allowed: false, reason: "paused" };
-      const nowUtc = new Date().toISOString();
-      const reservation = await reserveTypesafeRequest(
-        env.DB,
-        boundaryUtc,
-        stage,
-        utcDay(new Date(nowUtc)),
-        nowUtc,
-        requestLimit,
-      );
-      return {
-        allowed: reservation.allowed,
-        ...(reservation.allowed ? {} : { reason: reservation.reason }),
-      };
-    },
-  });
-  const requestsUsed = await countTypesafeRequests(env.DB, utcDay());
-  const skipped = prediction.request_decisions
-    .filter((decision) => !decision.allowed)
-    .map((decision) => `${decision.stage}:${decision.reason ?? "blocked"}`);
-  if (prediction.forecasts.length === 0) {
-    return { requestsUsed, requestDecisions: prediction.request_decisions, skippedReason: skipped.join(",") || "no_forecasts" };
+  let result;
+  try {
+    result = await decidePaperTrade(state, {
+      apiKey: env.TYPESAFE_API_KEY,
+      beforeRequest: async () => {
+        if (await isCollectionPaused(env.DB)) return { allowed: false, reason: "paused" };
+        const nowUtc = new Date().toISOString();
+        const reservation = await reserveTypesafeRequest(
+          env.DB,
+          boundaryUtc,
+          "paper_trade_decision",
+          utcDay(new Date(nowUtc)),
+          nowUtc,
+          requestLimit,
+        );
+        return { allowed: reservation.allowed, ...(reservation.allowed ? {} : { reason: reservation.reason }) };
+      },
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "paper_trade_decision_failed", boundary_utc: boundaryUtc, reason: "typesafe_request_failed" }));
+    const assessment = assessPaperTradeCandidate(state);
+    result = {
+      kind: "blocked" as const,
+      assessment,
+      request: { allowed: false, reason: "typesafe_error" },
+    };
   }
-  const batch: PredictionBatch = {
-    batch_id: id,
-    created_at_utc: new Date().toISOString(),
-    experimental_only: true,
-    state,
-    forecasts: prediction.forecasts,
-    usage: prediction.usage,
-  };
-  await appendCloudflareBatch(env.DB, batch);
+  const scan = makePaperTradeScan(state, result);
+  await appendCloudflarePaperTradeScan(env.DB, scan);
+  const requestsUsed = await countTypesafeRequests(env.DB, utcDay());
+  const request = result.kind === "no_candidate" ? null : result.request;
   return {
     requestsUsed,
-    requestDecisions: prediction.request_decisions,
-    skippedReason: skipped.length > 0 ? skipped.join(",") : null,
+    requestDecisions: request ? [{ stage: "paper_trade_decision", ...request }] : [],
+    skippedReason: result.kind === "blocked" ? result.request.reason ?? result.assessment.reason : result.kind === "no_candidate" ? result.assessment.reason : null,
+    scanOutcome: scan.outcome,
   };
 }
 
@@ -240,6 +224,7 @@ export default {
           boundary_utc: boundaryUtc,
           settled,
           status,
+          paper_trade_scan_outcome: result.scanOutcome,
           typesafe_requests_used: result.requestsUsed,
           typesafe_daily_request_limit: requestLimit,
           request_decisions: result.requestDecisions,
