@@ -32,7 +32,5 @@ jobs:
         run: npm run check
       - name: Run existing test suite
         run: npm test
-      - name: Validate public Worker deployment
+      - name: Validate Cloudflare deployment configuration
         run: npm run cloudflare:check
-      - name: Validate private runner deployment
-        run: npm run cloudflare:check:runner
