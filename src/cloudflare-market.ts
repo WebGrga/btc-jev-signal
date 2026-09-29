@@ -1,4 +1,5 @@
 import { atr, ema, macd, rsi, sma } from "./indicators.js";
+import { fetchMarketJson } from "./cloudflare-http.js";
 import type { ExperimentState, Timeframe, TimeframeFeatures } from "./experiment-types.js";
 import type { Candle, MarketState } from "./types.js";
 
@@ -6,7 +7,8 @@ const MARKET_BASE = "https://api.bybit.com";
 const SYMBOL = "BTCUSDT";
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
-const FINALIZATION_TIMEOUT_MS = 60_000;
+const FINALIZATION_ATTEMPTS = 3;
+const FINALIZATION_RETRY_DELAY_MS = 2_000;
 const INTERVAL_MS = { "1m": MINUTE_MS, "15m": 15 * MINUTE_MS, "1h": 60 * MINUTE_MS, "4h": 240 * MINUTE_MS, "1d": DAY_MS } as const;
 
 type BybitKline = [string, string, string, string, string, string, string];
@@ -32,23 +34,8 @@ function url(base: string, path: string, params: Record<string, string>): URL {
   return result;
 }
 
-async function fetchJson<T>(input: URL, attempts = 4): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const response = await fetch(input, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) throw new Error(`${input.host}${input.pathname} returned ${response.status}`);
-      return await response.json() as T;
-    } catch (error) {
-      lastError = error;
-      if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** attempt, 5_000)));
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
-}
-
 async function fetchBybitJson<T>(input: URL): Promise<T> {
-  const response = await fetchJson<BybitResponse<T>>(input);
+  const response = await fetchMarketJson<BybitResponse<T>>(input);
   if (response.retCode !== 0) throw new Error(`Bybit API returned ${response.retCode}: ${response.retMsg}`);
   return response.result;
 }
@@ -86,16 +73,15 @@ function expectedCandleCloseMs(interval: keyof typeof INTERVAL_MS, boundaryMs: n
 
 async function fetchFinalizedCandles(interval: "1m" | "15m" | "1h" | "4h", limit: number, boundaryMs: number): Promise<Candle[]> {
   const expectedClose = expectedCandleCloseMs(interval, boundaryMs);
-  const deadline = Date.now() + FINALIZATION_TIMEOUT_MS;
   let latestClose: number | null = null;
-  do {
+  for (let attempt = 0; attempt < FINALIZATION_ATTEMPTS; attempt += 1) {
     const candles = await fetchCandles(interval, limit, boundaryMs - 1);
     const completed = candles.filter((candle) => candle.closeTimeMs < boundaryMs);
     latestClose = completed.at(-1)?.closeTimeMs ?? null;
     if (latestClose === expectedClose) return candles;
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-  } while (Date.now() < deadline);
-  throw new Error(`Timed out waiting for Bybit Spot ${interval} candle ending ${iso(expectedClose)}; latest was ${latestClose === null ? "none" : iso(latestClose)}`);
+    if (attempt + 1 < FINALIZATION_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, FINALIZATION_RETRY_DELAY_MS));
+  }
+  throw new Error(`Bybit Spot ${interval} candle ending ${iso(expectedClose)} was unavailable after ${FINALIZATION_ATTEMPTS} checks; latest was ${latestClose === null ? "none" : iso(latestClose)}`);
 }
 
 function referenceClose(candles: readonly Candle[], targetMs: number): Candle {
