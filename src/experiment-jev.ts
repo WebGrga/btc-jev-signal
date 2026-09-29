@@ -6,6 +6,23 @@ import type {
   Horizon,
 } from "./experiment-types.js";
 import { HORIZON_ORDER } from "./experiment-schedule.js";
+import type { TypeSafeRequestStage } from "./cloudflare-cost-guard.js";
+
+export interface RequestPermit {
+  allowed: boolean;
+  reason?: string;
+}
+
+export interface PredictionOptions {
+  maxRetries?: number;
+  beforeRequest?: (stage: TypeSafeRequestStage) => Promise<RequestPermit>;
+}
+
+export interface PredictionResult {
+  forecasts: Forecast[];
+  usage: { parallel_horizons: unknown; eod_cascade: unknown };
+  request_decisions: Array<RequestPermit & { stage: TypeSafeRequestStage }>;
+}
 
 const CRITERIA = {
   higher: "The BTC spot price for `snapshot.symbol` at the exact target timestamp is greater than `snapshot.anchor_price_usdt`.",
@@ -42,7 +59,7 @@ const eodQuestion = choice(
   CRITERIA,
 );
 
-function client(apiKey = process.env.TYPESAFE_API_KEY): TypeSafeClient {
+function client(apiKey = process.env.TYPESAFE_API_KEY, maxRetries = 3): TypeSafeClient {
   if (!apiKey?.trim()) {
     throw new Error("TYPESAFE_API_KEY is not set. Add it to .env before running the experiment.");
   }
@@ -51,7 +68,7 @@ function client(apiKey = process.env.TYPESAFE_API_KEY): TypeSafeClient {
     timeout: 15_000,
     logLevel: "warn",
     retry: {
-      maxRetries: 3,
+      maxRetries,
       backoffInitialMs: 500,
       backoffMaxMs: 5_000,
       maxRetryAfterMs: 60_000,
@@ -90,33 +107,29 @@ function toForecast(
   };
 }
 
-export async function predictExperiment(state: ExperimentState): Promise<{
-  forecasts: Forecast[];
-  usage: { parallel_horizons: unknown; eod_cascade: unknown };
-}>;
+export async function predictExperiment(state: ExperimentState): Promise<PredictionResult>;
 export async function predictExperiment(
   state: ExperimentState,
   requestedHorizons: readonly Horizon[],
   apiKey?: string,
-): Promise<{
-  forecasts: Forecast[];
-  usage: { parallel_horizons: unknown; eod_cascade: unknown };
-}>;
+  options?: PredictionOptions,
+): Promise<PredictionResult>;
 export async function predictExperiment(
   state: ExperimentState,
   requestedHorizons: readonly Horizon[] = HORIZON_ORDER,
   apiKey?: string,
-): Promise<{
-  forecasts: Forecast[];
-  usage: { parallel_horizons: unknown; eod_cascade: unknown };
-}> {
+  options: PredictionOptions = {},
+): Promise<PredictionResult> {
   const requested = new Set(requestedHorizons);
   const regularHorizons = (["15m", "1h", "4h"] as const).filter((horizon) => requested.has(horizon));
-  const typesafe = client(apiKey);
+  const typesafe = client(apiKey, options.maxRetries ?? 3);
   const questions = Object.fromEntries(
     regularHorizons.map((horizon) => [`direction_${horizon}`, horizonQuestions[`direction_${horizon}`]]),
   );
-  const parallel = regularHorizons.length > 0
+  const parallelPermit = regularHorizons.length > 0
+    ? await options.beforeRequest?.("parallel_horizons") ?? { allowed: true }
+    : { allowed: false, reason: "not_requested" };
+  const parallel = regularHorizons.length > 0 && parallelPermit.allowed
     ? await typesafe.systemOne({
         state: state as unknown as Record<string, JsonValue>,
         questions,
@@ -152,7 +165,10 @@ export async function predictExperiment(
       ]),
     ),
   };
-  const eod = requested.has("eod")
+  const eodPermit = requested.has("eod")
+    ? await options.beforeRequest?.("eod_cascade") ?? { allowed: true }
+    : { allowed: false, reason: "not_requested" };
+  const eod = requested.has("eod") && eodPermit.allowed
     ? await typesafe.systemOne({
         state: cascadeState as unknown as Record<string, JsonValue>,
         questions: { direction_eod: eodQuestion },
@@ -177,5 +193,9 @@ export async function predictExperiment(
       parallel_horizons: parallel?.usage ?? null,
       eod_cascade: eod?.usage ?? null,
     },
+    request_decisions: [
+      ...(regularHorizons.length > 0 ? [{ stage: "parallel_horizons" as const, ...parallelPermit }] : []),
+      ...(requested.has("eod") ? [{ stage: "eod_cascade" as const, ...eodPermit }] : []),
+    ],
   };
 }
