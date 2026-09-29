@@ -22,7 +22,6 @@ const CADENCE_LABELS: Record<Horizon, string> = {
   "4h": "Every 4 hours",
   eod: "Once per UTC day",
 };
-const REFRESH_MS = 60_000;
 
 function formatUsd(value: number | null, digits = 2): string {
   if (value === null) return "Unavailable";
@@ -55,15 +54,6 @@ function formatUtc(value: string, includeDate = true): string {
     timeZone: "UTC",
     hour12: false,
   }).format(new Date(value));
-}
-
-function timeDistance(target: string): string {
-  const deltaMinutes = Math.round((Date.parse(target) - Date.now()) / 60_000);
-  if (deltaMinutes <= 0) return "Settlement due";
-  if (deltaMinutes < 60) return `${deltaMinutes}m remaining`;
-  const hours = Math.floor(deltaMinutes / 60);
-  const minutes = deltaMinutes % 60;
-  return minutes ? `${hours}h ${minutes}m remaining` : `${hours}h remaining`;
 }
 
 function directionLabel(value: Direction): string {
@@ -103,10 +93,8 @@ function useDashboard(): { data: DashboardData | null; error: string | null; loa
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), REFRESH_MS);
     return () => {
       active = false;
-      window.clearInterval(timer);
     };
   }, []);
   return { data, error, loading };
@@ -159,7 +147,7 @@ function ForecastCard({ forecast, data, horizon }: { forecast: ForecastView | un
         <div><dt>Anchor</dt><dd>{formatUsd(forecast.origin_price_usdt)}</dd></div>
         <div><dt>Confidence <Info text="Distribution concentration reported by Jev. It is not a guarantee of correctness." /></dt><dd>{formatProbability(forecast.confidence)}</dd></div>
       </dl>
-      <footer>{forecast.status === "pending" ? timeDistance(forecast.target_timestamp_utc) : `Actual ${forecast.actual_direction ?? "pending"} ${formatPct(forecast.actual_return_pct)}`}</footer>
+      <footer>{forecast.status === "pending" ? "Unresolved when the experiment ended" : `Actual ${forecast.actual_direction ?? "pending"} ${formatPct(forecast.actual_return_pct)}`}</footer>
     </article>
   );
 }
@@ -253,33 +241,34 @@ function Dashboard({ data, error }: { data: DashboardData; error: string | null 
   const forecastByHorizon = useMemo(() => new Map(data.latest_forecasts.map((forecast) => [forecast.horizon, forecast])), [data.latest_forecasts]);
   return (
     <div className="app">
-      <header className="appbar"><div className="brand-path"><a href="https://lab.rokogrga.com/" className="brand">RG Lab</a><span>/</span><a href="https://lab.rokogrga.com/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip">Public experiment</span></header>
-      {error ? <div className="error-banner">Live refresh failed. Displaying the last successful response.</div> : null}
+      <header className="appbar"><div className="brand-path"><a href="https://lab.rokogrga.com/" className="brand">RG Lab</a><span>/</span><a href="https://lab.rokogrga.com/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip predictor-archived">Archived</span></header>
+      {error ? <div className="error-banner">The archive API could not be reached. Previously loaded data may still be visible.</div> : null}
+      <div className="archive-banner"><strong>This experiment is no longer running.</strong> No new forecasts or settlements are being generated. The saved Jev calls, market inputs, outcomes, and scores remain available below.</div>
       <main id="top" className="dashboard">
         <section className="summary-strip">
-          <div className="price-block"><span>BTC snapshot</span><strong>{formatUsd(latest.state.snapshot.anchor_price_usdt)}</strong></div>
-          <dl><div><dt>Snapshot UTC</dt><dd>{formatUtc(latest.state.snapshot.timestamp_utc)} UTC</dd></div><div><dt>Source</dt><dd>{latest.state.snapshot.anchor_price_source}</dd></div><div><dt>Scoring policy</dt><dd>Natural non-overlapping cadence</dd></div><div><dt>Dashboard generated</dt><dd>{formatUtc(data.generated_at_utc)} UTC</dd></div></dl>
+          <div className="price-block"><span>Final stored BTC snapshot</span><strong>{formatUsd(latest.state.snapshot.anchor_price_usdt)}</strong></div>
+          <dl><div><dt>Snapshot UTC</dt><dd>{formatUtc(latest.state.snapshot.timestamp_utc)} UTC</dd></div><div><dt>Source</dt><dd>{latest.state.snapshot.anchor_price_source}</dd></div><div><dt>Scoring policy</dt><dd>Natural non-overlapping cadence</dd></div><div><dt>Archive loaded</dt><dd>{formatUtc(data.generated_at_utc)} UTC</dd></div></dl>
           <p><strong>Experimental personal research.</strong> Not financial advice. No trades are placed.</p>
         </section>
 
         <section id="forecasts" className="panel-section">
-          <div className="section-title"><div><span className="section-kicker">Current active calls</span><h1>What Jev predicts next</h1></div><p>Each card keeps the newest eligible forecast for that horizon visible until a newer naturally scheduled call replaces it.</p></div>
+          <div className="section-title"><div><span className="section-kicker">Final stored calls</span><h1>What Jev predicted last</h1></div><p>These are the newest saved forecasts from each horizon before the experiment stopped. They are historical records, not current market predictions.</p></div>
           <div className="forecast-grid">{HORIZONS.map((horizon) => <ForecastCard key={horizon} horizon={horizon} forecast={forecastByHorizon.get(horizon)} data={data} />)}</div>
         </section>
 
         <section className="explain-grid">
-          <article className="panel"><header className="panel-header"><div><h2>Forecast lifecycle</h2><p>What enters the equation and how it becomes a score.</p></div></header><ol className="pipeline">
-            <li><b>1</b><div><strong>Observe</strong><span>Completed Kraken spot candles and order book, plus available Binance futures measurements, are captured at an exact UTC boundary.</span></div></li><li><b>2</b><div><strong>Calculate</strong><span>Returns, RSI, MACD, ATR, volume and moving-average distances are produced in ordinary code.</span></div></li><li><b>3</b><div><strong>Ask Jev</strong><span>The neutral structured State and an atomic higher-or-lower question produce a full probability distribution.</span></div></li><li><b>4</b><div><strong>Freeze</strong><span>The original price, target timestamp and probabilities are saved before the outcome exists.</span></div></li><li><b>5</b><div><strong>Settle</strong><span>At the target, code retrieves the exact completed Kraken 1-minute close and calculates accuracy, Brier score and log loss.</span></div></li>
+          <article className="panel"><header className="panel-header"><div><h2>How the experiment worked</h2><p>What entered each forecast and how completed calls became scores.</p></div></header><ol className="pipeline">
+            <li><b>1</b><div><strong>Observed</strong><span>Completed Bybit spot candles and order book, plus available Bybit perpetual-futures measurements, were captured at an exact UTC boundary.</span></div></li><li><b>2</b><div><strong>Calculated</strong><span>Returns, RSI, MACD, ATR, volume and moving-average distances were produced in ordinary code.</span></div></li><li><b>3</b><div><strong>Asked Jev</strong><span>The neutral structured State and an atomic higher-or-lower question produced a full probability distribution.</span></div></li><li><b>4</b><div><strong>Frozen</strong><span>The original price, target timestamp and probabilities were saved before the outcome existed.</span></div></li><li><b>5</b><div><strong>Settled</strong><span>At the target, code retrieved the completed Bybit Spot 1-minute close and calculated accuracy, Brier score and log loss.</span></div></li>
           </ol></article>
-          <article className="panel"><header className="panel-header"><div><h2>Issue schedule</h2><p>Each horizon now creates one non-overlapping sequence of trials.</p></div></header><ScheduleTable data={data} /><p className="callout">The previous version asked all four questions every 15 minutes. Those records are preserved, but overlapping 1h, 4h and day-close calls are excluded from the primary score.</p></article>
+          <article className="panel"><header className="panel-header"><div><h2>Historical issue schedule</h2><p>The cadence used while the experiment was active.</p></div></header><ScheduleTable data={data} /><p className="callout">The first version asked all four questions every 15 minutes. Those records are preserved, but overlapping 1h, 4h and day-close calls are excluded from the primary score.</p></article>
         </section>
 
         <section id="scores" className="panel panel-section"><header className="panel-header split"><div><h2>Performance by horizon</h2><p>Do not combine these rows: they represent different questions, cadences and sample sizes.</p></div><span className="sample-warning">Early sample · descriptive only</span></header><PerformanceTable reports={data.report.reports} /></section>
-        <section id="inputs" className="panel panel-section"><header className="panel-header"><div><h2>Exact inputs in the latest State</h2><p>Nothing below is a Jev explanation or feature weight. These are the measurements Jev received; expand any group to inspect it.</p></div></header><ModelInputs data={data} /></section>
+        <section id="inputs" className="panel panel-section"><header className="panel-header"><div><h2>Exact inputs in the final State</h2><p>Nothing below is a Jev explanation or feature weight. These are the measurements Jev received in the last stored run; expand any group to inspect it.</p></div></header><ModelInputs data={data} /></section>
         <section id="log" className="panel panel-section"><header className="panel-header"><div><h2>Eligible forecast log</h2><p>Only forecasts matching the natural schedule appear here. Each result compares its own issue price with its own exact target timestamp.</p></div></header><RecentForecasts forecasts={data.recent_forecasts} /></section>
         <section className="sources panel-section"><div><strong>Spot and indicators</strong><span>{latest.state.sources.spot}</span></div><div><strong>Funding and open interest</strong><span>{latest.state.sources.perpetual_futures}</span></div><div><strong>Liquidations</strong><span>{latest.state.sources.liquidations}</span></div><div><strong>Settlement</strong><span>{data.methodology.target_price_source}</span></div></section>
       </main>
-      <footer className="site-footer"><span>RG Lab / BTC–Jev</span><span>Experimental signal research · Not financial advice</span></footer>
+      <footer className="site-footer"><span>RG Lab / BTC–Jev archive</span><span>Historical experimental research · Not financial advice</span></footer>
     </div>
   );
 }
@@ -288,7 +277,7 @@ function ExperimentPage(): React.JSX.Element {
   const { data, error, loading } = useDashboard();
   useEffect(() => { document.title = "BTC–Jev — RG Lab"; }, []);
   if (loading && !data) return <main className="loading">Loading experiment data…</main>;
-  if (!data?.latest_batch) return <main className="loading">The experiment is online and waiting for its first forecast.</main>;
+  if (!data?.latest_batch) return <main className="loading">The BTC–Jev archive is currently unavailable.</main>;
   return <Dashboard data={data} error={error} />;
 }
 

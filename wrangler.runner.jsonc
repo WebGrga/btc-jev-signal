@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "btc-jev-signal-runner",
+  "main": "src/cloudflare-runner.ts",
+  "compatibility_date": "2026-09-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "placement": { "region": "aws:eu-central-1" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "btc-jev-signal",
+      "database_id": "b073c881-6604-45e8-90d7-a0b53a3bba0c",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": { "LIQUIDATION_WINDOW_MS": "3000" },
+  "observability": { "enabled": true }
+}

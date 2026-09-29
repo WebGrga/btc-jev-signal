@@ -20,12 +20,17 @@ import type {
 interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  RUNNER: Fetcher;
   TYPESAFE_API_KEY: string;
   LIQUIDATION_WINDOW_MS?: string;
 }
 
 const FIFTEEN_MINUTES_MS = 15 * 60_000;
 const SETTLEMENT_GRACE_MS = 5_000;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function round(value: number, digits = 6): number { return Number(value.toFixed(digits)); }
 function batchId(timestampIso: string): string { return `batch_${timestampIso.replace(/[-:.]/g, "")}`; }
@@ -54,7 +59,7 @@ function settlementFor(forecast: Forecast, targetPrice: number): Settlement {
     predicted_probability: probability,
     brier_score: scorable ? round((forecast.probabilities.higher - (actual === "higher" ? 1 : 0)) ** 2) : null,
     log_loss: probability === null ? null : round(-Math.log(Math.max(1e-12, probability))),
-    target_price_source: "Kraken Spot completed BTC/USD 1m candle close",
+    target_price_source: "Bybit Spot completed BTCUSDT 1m candle close",
   };
 }
 
@@ -145,10 +150,13 @@ export default {
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
-      const boundaryMs = Math.floor(controller.scheduledTime / FIFTEEN_MINUTES_MS) * FIFTEEN_MINUTES_MS;
-      const settled = await settleDue(env, controller.scheduledTime);
-      await forecastBoundary(env, boundaryMs);
-      console.log(JSON.stringify({ event: "forecast_cycle", boundary_utc: new Date(boundaryMs).toISOString(), settled }));
+      const response = await env.RUNNER.fetch(new Request("https://runner.internal/internal/run-scheduled", {
+        method: "POST",
+        headers: { "X-Scheduled-Time": String(controller.scheduledTime) },
+      }));
+      const body = await response.text();
+      if (!response.ok) throw new Error(`Placed forecast runner failed (${response.status}): ${body}`);
+      console.log(body);
     })());
   },
 } satisfies ExportedHandler<Env>;
