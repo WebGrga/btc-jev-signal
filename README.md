@@ -10,6 +10,8 @@ This repository owns the complete BTC–Jev project: its dashboard, market-data 
 
 This is a personal software experiment, not financial advice, investment research, or a trading service. It never places or prepares trades.
 
+The hosted feed is currently stale: the dashboard displays the latest stored forecast snapshot and keeps historical forecasts and outcomes available while the experiment is evaluated and improved.
+
 ## What the experiment does
 
 At exact UTC boundaries, ordinary code collects a neutral structured market State. Jev answers atomic higher-or-lower questions with full probability distributions. Every forecast is frozen with its issue price and exact target timestamp. After the target passes, ordinary code retrieves the completed 1-minute close from the same spot source and calculates the outcome.
@@ -110,6 +112,8 @@ npm run experiment:once   # Immediate four-horizon diagnostic batch
 npm run experiment:state  # Inspect State without calling Jev
 npm run settle            # Settle due local forecasts
 npm run report            # Regenerate local report files
+npm run review            # Have Jev review all local history and write a structured audit
+npm run features          # Describe indicator/outcome associations on natural-schedule forecasts
 npm run check
 npm test
 ```
@@ -121,6 +125,17 @@ Local mode writes:
 - `data/predictions.jsonl`: complete States and probability distributions.
 - `data/settlements.jsonl`: target prices, realized returns, accuracy, Brier score, and log loss.
 - `data/report.json` and `data/report.md`: aggregate summaries.
+- `data/jev-review.json` and `data/jev-review.md`: on-demand Jev audit of the complete local history, including fee-sensitive endpoint-return scenarios and explicit strategy limitations.
+- `data/feature-associations.json` and `data/feature-associations.md`: offline quartile breakdowns of saved market features against later outcomes, separated by forecast horizon.
+
+Feature associations are exploratory descriptions of the existing sample, not learned importance, causal effects, or a reason to change weights. The command uses only settled forecasts on the natural, non-overlapping schedule and makes no Jev/API calls. Any candidate improvement must be pre-registered and evaluated on a later untouched period.
+
+## Research directions from issue #3
+
+- **Which indicators help?** Use `npm run features` to inspect outcome rates and returns across indicator ranges. Do not rank or remove features from the current in-sample report; compare a pre-registered reduced State on future data.
+- **Can the system improve from outcomes?** Jev does not learn from saved forecasts automatically. The project records outcomes so calibration, abstention rules, and simpler baselines can be tested separately on later data before changing the forecast process.
+- **Can a local model replace Jev?** This needs a same-State challenger comparison first. Jev's typed probability distributions and a local model's self-reported JSON probabilities may not be calibrated in the same way, so compare both against settled outcomes and simple baselines before considering a switch.
+- **Should we add macro data?** Only add timestamped, reproducible fields with historical availability preserved. Any source or revision that can introduce look-ahead would invalidate the comparison.
 
 Cloudflare stores equivalent JSON records in indexed D1 tables. Credentials are never written to State, dashboard responses, or prediction records.
 

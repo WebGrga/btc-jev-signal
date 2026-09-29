@@ -157,3 +157,31 @@ export interface ExperimentReport {
   reports: HorizonReport[];
   note: string;
 }
+
+export interface HistoricalPerformanceSlice {
+  horizon: Horizon | "overall";
+  issued: number;
+  settled: number;
+  scored: number;
+  correct: number;
+  accuracy: number | null;
+  mean_chosen_probability: number | null;
+  mean_confidence: number | null;
+  mean_signed_return_pct: number | null;
+  summed_independent_trade_return_pct: number | null;
+}
+
+export interface HypotheticalPnlScenario {
+  round_trip_cost_pct: number;
+  settled_trades: number;
+  profitable_trades_after_cost: number;
+  mean_net_return_pct: number | null;
+  summed_independent_trade_return_pct: number | null;
+}
+
+export interface HistoricalAnalysisScope {
+  name: "all_recorded_forecasts" | "primary_natural_schedule";
+  overlapping_positions_possible: boolean;
+  performance: HistoricalPerformanceSlice[];
+  hypothetical_close_at_target_pnl: HypotheticalPnlScenario[];
+}

@@ -10,6 +10,8 @@ import {
 } from "./experiment-runner.js";
 import { experimentPaths, loadBatches, loadSettlements } from "./experiment-store.js";
 import { buildReport, reportMarkdown } from "./experiment-report.js";
+import { runHistoricalJevReview } from "./experiment-review.js";
+import { writeFeatureAssociationReport } from "./experiment-feature-analysis.js";
 
 function integerEnv(name: string, fallback: number, minimum: number, maximum: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -55,7 +57,17 @@ async function main(): Promise<void> {
     await printReport();
     return;
   }
-  throw new Error("Usage: experiment-cli run | once | state | settle | report");
+  if (command === "review") {
+    const output = await runHistoricalJevReview();
+    process.stdout.write(`Jev review files: ${output.markdownPath} and ${output.jsonPath}\n`);
+    return;
+  }
+  if (command === "features") {
+    const output = await writeFeatureAssociationReport();
+    process.stdout.write(`Feature association files: ${output.markdownPath} and ${output.jsonPath}\n`);
+    return;
+  }
+  throw new Error("Usage: experiment-cli run | once | state | settle | report | review | features");
 }
 
 main().catch((error) => {
