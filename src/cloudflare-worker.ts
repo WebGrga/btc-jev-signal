@@ -4,11 +4,17 @@ import { buildDashboardData } from "./dashboard-data.js";
 import { buildCloudflareExperimentState, fetchCloudflareAlignedClose } from "./cloudflare-market.js";
 import { predictExperiment } from "./experiment-jev.js";
 import { horizonsDueAt } from "./experiment-schedule.js";
+import { parseTypesafeDailyRequestLimit, utcDay } from "./cloudflare-cost-guard.js";
 import {
   appendCloudflareBatch,
   appendCloudflareSettlement,
+  claimScheduledBoundary,
+  countTypesafeRequests,
+  isCollectionPaused,
   loadCloudflareBatches,
   loadCloudflareSettlements,
+  reserveTypesafeRequest,
+  updateScheduledBoundary,
 } from "./cloudflare-store.js";
 import type {
   ActualDirection,
@@ -21,6 +27,7 @@ interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   TYPESAFE_API_KEY: string;
+  TYPESAFE_DAILY_REQUEST_LIMIT?: string;
   LIQUIDATION_WINDOW_MS?: string;
 }
 
@@ -84,12 +91,58 @@ function liquidationWindow(env: Env): number {
   return Number.isInteger(value) && value >= 0 && value <= 30_000 ? value : 3_000;
 }
 
-async function forecastBoundary(env: Env, boundaryMs: number): Promise<void> {
+interface ForecastBoundaryResult {
+  requestsUsed: number;
+  requestDecisions: Array<{ stage: string; allowed: boolean; reason?: string }>;
+  skippedReason: string | null;
+}
+
+async function forecastBoundary(env: Env, boundaryMs: number, requestLimit: number): Promise<ForecastBoundaryResult> {
   const batches = await loadCloudflareBatches(env.DB);
   const id = batchId(new Date(boundaryMs).toISOString());
-  if (batches.some((batch) => batch.batch_id === id)) return;
+  const boundaryUtc = new Date(boundaryMs).toISOString();
+  if (batches.some((batch) => batch.batch_id === id)) {
+    return { requestsUsed: await countTypesafeRequests(env.DB, utcDay()), requestDecisions: [], skippedReason: "batch_already_recorded" };
+  }
+  const due = horizonsDueAt(boundaryMs);
+  const utcDayAtStart = utcDay();
+  const currentUsage = await countTypesafeRequests(env.DB, utcDayAtStart);
+  if (due.length === 0) {
+    return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "no_horizons_due" };
+  }
+  if (currentUsage >= requestLimit) {
+    return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "daily_limit" };
+  }
+  if (await isCollectionPaused(env.DB)) {
+    return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "paused" };
+  }
   const state = await buildCloudflareExperimentState(boundaryMs, liquidationWindow(env));
-  const prediction = await predictExperiment(state, horizonsDueAt(boundaryMs), env.TYPESAFE_API_KEY);
+  const prediction = await predictExperiment(state, due, env.TYPESAFE_API_KEY, {
+    maxRetries: 0,
+    beforeRequest: async (stage) => {
+      if (await isCollectionPaused(env.DB)) return { allowed: false, reason: "paused" };
+      const nowUtc = new Date().toISOString();
+      const reservation = await reserveTypesafeRequest(
+        env.DB,
+        boundaryUtc,
+        stage,
+        utcDay(new Date(nowUtc)),
+        nowUtc,
+        requestLimit,
+      );
+      return {
+        allowed: reservation.allowed,
+        ...(reservation.allowed ? {} : { reason: reservation.reason }),
+      };
+    },
+  });
+  const requestsUsed = await countTypesafeRequests(env.DB, utcDay());
+  const skipped = prediction.request_decisions
+    .filter((decision) => !decision.allowed)
+    .map((decision) => `${decision.stage}:${decision.reason ?? "blocked"}`);
+  if (prediction.forecasts.length === 0) {
+    return { requestsUsed, requestDecisions: prediction.request_decisions, skippedReason: skipped.join(",") || "no_forecasts" };
+  }
   const batch: PredictionBatch = {
     batch_id: id,
     created_at_utc: new Date().toISOString(),
@@ -99,6 +152,11 @@ async function forecastBoundary(env: Env, boundaryMs: number): Promise<void> {
     usage: prediction.usage,
   };
   await appendCloudflareBatch(env.DB, batch);
+  return {
+    requestsUsed,
+    requestDecisions: prediction.request_decisions,
+    skippedReason: skipped.length > 0 ? skipped.join(",") : null,
+  };
 }
 
 function json(data: unknown, status = 200): Response {
@@ -146,9 +204,53 @@ export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const boundaryMs = Math.floor(controller.scheduledTime / FIFTEEN_MINUTES_MS) * FIFTEEN_MINUTES_MS;
-      const settled = await settleDue(env, controller.scheduledTime);
-      await forecastBoundary(env, boundaryMs);
-      console.log(JSON.stringify({ event: "forecast_cycle", boundary_utc: new Date(boundaryMs).toISOString(), settled }));
+      const boundaryUtc = new Date(boundaryMs).toISOString();
+      let requestLimit: number;
+      try {
+        requestLimit = parseTypesafeDailyRequestLimit(env.TYPESAFE_DAILY_REQUEST_LIMIT);
+      } catch (error) {
+        console.error(JSON.stringify({ event: "cost_guard_config_invalid", boundary_utc: boundaryUtc, reason: error instanceof Error ? error.message : "invalid_limit" }));
+        return;
+      }
+
+      const nowUtc = new Date().toISOString();
+      const claimed = await claimScheduledBoundary(env.DB, boundaryUtc, nowUtc);
+      if (!claimed) {
+        const requestsUsed = await countTypesafeRequests(env.DB, utcDay());
+        console.log(JSON.stringify({ event: "forecast_cycle_skipped", boundary_utc: boundaryUtc, reason: "duplicate_boundary", typesafe_requests_used: requestsUsed, typesafe_daily_request_limit: requestLimit }));
+        return;
+      }
+
+      try {
+        if (await isCollectionPaused(env.DB)) {
+          const requestsUsed = await countTypesafeRequests(env.DB, utcDay());
+          await updateScheduledBoundary(env.DB, boundaryUtc, "paused", requestsUsed, requestLimit, "operator_pause", new Date().toISOString());
+          console.log(JSON.stringify({ event: "forecast_cycle_skipped", boundary_utc: boundaryUtc, reason: "operator_pause", typesafe_requests_used: requestsUsed, typesafe_daily_request_limit: requestLimit }));
+          return;
+        }
+
+        const settled = await settleDue(env, controller.scheduledTime);
+        const result = await forecastBoundary(env, boundaryMs, requestLimit);
+        const wasPaused = result.skippedReason === "paused" || result.requestDecisions.some((decision) => decision.reason === "paused");
+        const reachedLimit = result.skippedReason === "daily_limit" || result.requestDecisions.some((decision) => decision.reason === "daily_limit");
+        const status = wasPaused ? "paused" : reachedLimit ? "limit_reached" : "completed";
+        await updateScheduledBoundary(env.DB, boundaryUtc, status, result.requestsUsed, requestLimit, result.skippedReason, new Date().toISOString());
+        console.log(JSON.stringify({
+          event: "forecast_cycle",
+          boundary_utc: boundaryUtc,
+          settled,
+          status,
+          typesafe_requests_used: result.requestsUsed,
+          typesafe_daily_request_limit: requestLimit,
+          request_decisions: result.requestDecisions,
+          skipped_reason: result.skippedReason,
+        }));
+      } catch (error) {
+        const requestsUsed = await countTypesafeRequests(env.DB, utcDay()).catch(() => 0);
+        await updateScheduledBoundary(env.DB, boundaryUtc, "failed", requestsUsed, requestLimit, "runtime_error", new Date().toISOString()).catch(() => undefined);
+        console.error(JSON.stringify({ event: "forecast_cycle_failed", boundary_utc: boundaryUtc, typesafe_requests_used: requestsUsed, typesafe_daily_request_limit: requestLimit, error: error instanceof Error ? error.message : "unknown_error" }));
+        throw error;
+      }
     })());
   },
 } satisfies ExportedHandler<Env>;
