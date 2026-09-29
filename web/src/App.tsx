@@ -241,9 +241,9 @@ function Dashboard({ data, error }: { data: DashboardData; error: string | null 
   const forecastByHorizon = useMemo(() => new Map(data.latest_forecasts.map((forecast) => [forecast.horizon, forecast])), [data.latest_forecasts]);
   return (
     <div className="app">
-      <header className="appbar"><div className="brand-path"><a href="https://lab.rokogrga.com/" className="brand">RG Lab</a><span>/</span><a href="https://lab.rokogrga.com/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Forecasts</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip predictor-archived">Archived</span></header>
-      {error ? <div className="error-banner">The archive API could not be reached. Previously loaded data may still be visible.</div> : null}
-      <div className="archive-banner"><strong>This experiment is no longer running.</strong> No new forecasts or settlements are being generated. The saved Jev calls, market inputs, outcomes, and scores remain available below.</div>
+      <header className="appbar"><div className="brand-path"><a href="https://lab.rokogrga.com/" className="brand">RG Lab</a><span>/</span><a href="https://lab.rokogrga.com/btc-jev">BTC–Jev</a></div><nav><a href="#forecasts">Saved calls</a><a href="#scores">Scores</a><a href="#inputs">Inputs</a><a href="#log">Log</a></nav><span className="research-chip predictor-stale">Feed stale</span></header>
+      {error ? <div className="error-banner">Saved forecast data could not be reached. Previously loaded data may still be visible.</div> : null}
+      <div className="archive-banner"><strong>No fresh forecasts are arriving.</strong> The most recent stored snapshot is {formatUtc(latest.state.snapshot.timestamp_utc)} UTC. Saved Jev calls, market inputs, outcomes, and scores remain available while research continues on indicator usefulness, calibration, and model comparisons.</div>
       <main id="top" className="dashboard">
         <section className="summary-strip">
           <div className="price-block"><span>Final stored BTC snapshot</span><strong>{formatUsd(latest.state.snapshot.anchor_price_usdt)}</strong></div>
@@ -252,7 +252,7 @@ function Dashboard({ data, error }: { data: DashboardData; error: string | null 
         </section>
 
         <section id="forecasts" className="panel-section">
-          <div className="section-title"><div><span className="section-kicker">Final stored calls</span><h1>What Jev predicted last</h1></div><p>These are the newest saved forecasts from each horizon before the experiment stopped. They are historical records, not current market predictions.</p></div>
+          <div className="section-title"><div><span className="section-kicker">Saved calls</span><h1>What Jev predicted</h1></div><p>These are historical records from the last stored run for each horizon. They are not current market predictions.</p></div>
           <div className="forecast-grid">{HORIZONS.map((horizon) => <ForecastCard key={horizon} horizon={horizon} forecast={forecastByHorizon.get(horizon)} data={data} />)}</div>
         </section>
 
@@ -268,7 +268,7 @@ function Dashboard({ data, error }: { data: DashboardData; error: string | null 
         <section id="log" className="panel panel-section"><header className="panel-header"><div><h2>Eligible forecast log</h2><p>Only forecasts matching the natural schedule appear here. Each result compares its own issue price with its own exact target timestamp.</p></div></header><RecentForecasts forecasts={data.recent_forecasts} /></section>
         <section className="sources panel-section"><div><strong>Spot and indicators</strong><span>{latest.state.sources.spot}</span></div><div><strong>Funding and open interest</strong><span>{latest.state.sources.perpetual_futures}</span></div><div><strong>Liquidations</strong><span>{latest.state.sources.liquidations}</span></div><div><strong>Settlement</strong><span>{data.methodology.target_price_source}</span></div></section>
       </main>
-      <footer className="site-footer"><span>RG Lab / BTC–Jev archive</span><span>Historical experimental research · Not financial advice</span></footer>
+      <footer className="site-footer"><span>RG Lab / BTC–Jev research</span><span>Experimental signal research · Not financial advice</span></footer>
     </div>
   );
 }

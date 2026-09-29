@@ -52,7 +52,6 @@ button, summary, a { -webkit-tap-highlight-color: transparent; }
 .research-chip { justify-self: end; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--muted); font: 11px var(--mono); text-transform: uppercase; }
 .research-chip.predictor-live { border-color: #285d46; color: #74d6a4; }
 .research-chip.predictor-stale { border-color: #765a24; color: #ffd886; }
-.research-chip.predictor-archived { border-color: #66583c; color: #d4b978; }
 .error-banner { padding: 8px 16px; border-bottom: 1px solid #5e4920; background: #2a2110; color: #ffd886; font-size: 13px; text-align: center; }
 .archive-banner { padding: 10px 16px; border-bottom: 1px solid #544a35; background: #1d1a14; color: #c7bca6; font-size: 13px; line-height: 1.45; text-align: center; }
 .archive-banner strong { color: #f0d79e; }
