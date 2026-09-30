@@ -12,6 +12,8 @@ import {
   countTypesafeRequests,
   hasCloudflarePaperTradeScan,
   hasActivePaperTrade,
+  loadCloudflarePaperTradeScans,
+  loadCloudflarePaperTrades,
   isCollectionPaused,
   loadActivePaperTrades,
   loadCloudflareBatches,
@@ -194,8 +196,13 @@ async function api(request: Request, env: Env): Promise<Response | null> {
   if (pathname === "/api/health") return json({ ok: true, runtime: "cloudflare-workers", timestamp_utc: new Date().toISOString() });
   if (pathname === "/api/dashboard") {
     try {
-      const [batches, settlements] = await Promise.all([loadCloudflareBatches(env.DB), loadCloudflareSettlements(env.DB)]);
-      return json(buildDashboardData(batches, settlements));
+      const [batches, settlements, paperScans, paperTrades] = await Promise.all([
+        loadCloudflareBatches(env.DB),
+        loadCloudflareSettlements(env.DB),
+        loadCloudflarePaperTradeScans(env.DB),
+        loadCloudflarePaperTrades(env.DB),
+      ]);
+      return json(buildDashboardData(batches, settlements, new Date(), paperScans, paperTrades));
     } catch (error) {
       console.error("dashboard", error);
       return json({ error: "Dashboard data is temporarily unavailable." }, 500);
@@ -273,3 +280,4 @@ export default {
     })());
   },
 } satisfies ExportedHandler<Env>;
+

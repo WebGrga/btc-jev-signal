@@ -1,6 +1,6 @@
 # BTC–Jev Signal
 
-A public, non-trading BTC forecasting experiment using TypeSafe Jev with public Kraken spot and Binance futures market data.
+A public, paper-only BTC research experiment using TypeSafe Jev with Kraken spot and Binance futures market data. The current Cloudflare Worker screens for cost-aware candidate events, lets Jev recommend a fixed paper policy or no trade, and records simulated outcomes. It does not place orders.
 
 Public dashboard: **https://lab.rokogrga.com/btc-jev**
 
@@ -12,9 +12,11 @@ This is a personal software experiment, not financial advice, investment researc
 
 ## What the experiment does
 
-At exact UTC boundaries, ordinary code collects a neutral structured market State. Jev answers atomic higher-or-lower questions with full probability distributions. Every forecast is frozen with its issue price and exact target timestamp. After the target passes, ordinary code retrieves the completed 1-minute close from the same spot source and calculates the outcome.
+The Cloudflare Worker collects a neutral structured market State at 15-minute UTC boundaries. Ordinary code first checks freshness, estimated volatility, spread, costs, and active-position limits. It sends a bounded Jev decision request only for a candidate event; Jev may choose a fixed long-only spot paper policy or no trade. The simulator enters on the next eligible 1-minute candle and records fees, spread, slippage, exit reason, and source candles. No-candidate, blocked, no-trade, pending, skipped, and unpriceable records are kept distinct.
 
-The primary experiment uses a natural, non-overlapping schedule:
+Earlier higher-or-lower forecasts remain in the historical direction diagnostics. The Cloudflare Worker does not currently create new scheduled direction-only forecasts, so those forecast scores are separate from current paper-trade results.
+
+The historical direction-only experiment used a natural, non-overlapping schedule:
 
 | Forecast | Issued | Target | Maximum primary trials per UTC day |
 | --- | --- | --- | ---: |
@@ -41,25 +43,26 @@ Every State uses normalized UTC ISO 8601 timestamps and completed candles only.
 
 The State always identifies `snapshot.symbol`, `snapshot.quote_asset`, and every source string. Some stable JSON field names still end in `_usdt` for backward compatibility; in Cloudflare records those monetary values are USD, as declared by `quote_asset: "USD"`.
 
-The 15m, 1h, and 4h questions share one State and run independently in one TypeSafe request when they are due together. The day-close question is a second-stage request that can consume the three horizon distributions. The API key stays server-side.
+All current candidate questions share one TypeSafe request. No-candidate scans make no TypeSafe request. The API key stays server-side.
 
 ## Reading the dashboard
 
-The dashboard intentionally separates four concepts:
+The dashboard intentionally separates five concepts:
 
-1. **Active forecasts** show the newest eligible prediction for each horizon, its reference price, target, probability split, and Jev confidence.
-2. **Forecast lifecycle** shows exactly how observed data becomes calculated State, a frozen prediction, and a scored outcome.
-3. **Performance by horizon** keeps different time windows separate. Accuracy measures the selected direction. Brier score and log loss evaluate probability quality; lower is better.
-4. **Exact inputs** exposes every major field and includes the complete JSON State for audit.
+1. **Paper results** show net P&L, expectancy, drawdown, exposure, uncertainty, and sample size separately from directional scores.
+2. **Paper decisions** show Jev's action, Choice distribution, independent Noul probability, code eligibility, simulated fills, and costs.
+3. **Candidate log** shows no-candidate and blocked scans as well as requests sent to Jev.
+4. **Forecast diagnostics** keep archived directional accuracy, Brier score, and log loss separate from trading results.
+5. **Audit records** include exact market State and source candles.
 
 Small samples are descriptive only. Jev confidence describes concentration in the returned distribution, not guaranteed correctness.
 
 ## Cloudflare production architecture
 
-- Cloudflare Workers serves the API and runs the scheduled experiment.
+- Cloudflare Workers serves the API and runs scheduled candidate scans, the paper simulator, and settlements.
 - A project-specific Netlify site builds this repository's dashboard under `/btc-jev`; the RG Lab edge route exposes it at the canonical `lab.rokogrga.com/btc-jev` address.
 - Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
-- Cloudflare D1 stores prediction batches and settlements.
+- Cloudflare D1 stores historical prediction batches and settlements, paper scans, proposals, and simulated positions.
 - Cloudflare Worker Secrets stores `TYPESAFE_API_KEY`.
 - One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Kraken candle to finalize before collection.
 
@@ -67,7 +70,7 @@ The production database is intentionally separate from `data/*.jsonl`. A new dep
 
 ### Cloudflare usage guard
 
-The Worker allows at most 97 TypeSafe requests per UTC day by default: 96 scheduled horizon batches plus the separate UTC day-close request. `TYPESAFE_DAILY_REQUEST_LIMIT` in `wrangler.jsonc` can lower or raise that positive whole-number limit (maximum 10,000). Each scheduled boundary is claimed once in D1, and each TypeSafe request reserves one daily slot before it is sent. Reservations count conservatively, even if the provider request later fails. The Worker disables SDK retries so one reservation cannot fan out into extra TypeSafe attempts. Local CLI runs are not covered by this Cloudflare-only limit.
+The Worker allows at most 97 TypeSafe requests per UTC day by default. Candidate gating usually uses fewer, and a no-candidate scan consumes no request. `TYPESAFE_DAILY_REQUEST_LIMIT` in `wrangler.jsonc` can lower or raise that positive whole-number limit (maximum 10,000). Each scheduled boundary is claimed once in D1, and each TypeSafe request reserves one daily slot before it is sent. Reservations count conservatively, even if the provider request later fails. The Worker disables SDK retries so one reservation cannot fan out into extra TypeSafe attempts. Local CLI runs are not covered by this Cloudflare-only limit.
 
 The D1 control row provides a pause switch. Run either command from the repository with Wrangler authenticated to this Cloudflare account:
 
@@ -152,3 +155,4 @@ Cloudflare stores equivalent JSON records in indexed D1 tables. Credentials are 
 ## Netlify dashboard deployment
 
 This repository deploys only the BTC–Jev dashboard. `netlify.toml` builds `web/dist`, serves the app beneath `/btc-jev`, proxies `/btc-jev/api/*` to the Cloudflare Worker, and redirects the project deployment root to the canonical RG Lab address. The hub and its cross-project routing live in `WebGrga/rg-lab`.
+

@@ -154,19 +154,26 @@ specified and evaluated.
 
 ## Evaluation protocol
 
-Evaluation uses chronological walk-forward windows. Any policy choice,
-profitability threshold, or prefilter threshold is selected on earlier training
-and validation windows, then frozen before the following test window. The final
-holdout is not used to change questions, features, or thresholds.
+Evaluation uses chronological calendar-month walk-forward windows. Each test
+month can use results only from earlier months. The initial policies and
+prefilter thresholds are fixed before collection; v1 does not fit or retune
+them. Any future policy or threshold selection must use earlier training and
+validation months, then be frozen before the following test month. No later
+test outcome may influence an earlier decision or threshold.
 
-Each comparison uses the same candidate events, position size, entry/exit rules,
-data window, and cost model. Baselines are:
+The initial baselines are paired to the same completed Jev trade windows, fixed
+notional, recorded fills, and cost model. Buy-and-hold exits at the Jev window's
+exit timestamp, and the 4h momentum rule is evaluated on that same window. These
+paired-window comparisons do not measure performance over every market period.
+The direction-only trading baseline appears only when a frozen forecast exists
+at the exact proposal timestamp; new direction-only forecasts are not collected
+by the candidate-gated Worker yet. Baselines are:
 
 1. no trades;
 2. buy-and-hold for the evaluated period;
 3. a simple deterministic market rule;
-4. the existing direction-only forecast translated through the same paper
-   execution rules.
+4. an exact-time direction-only forecast translated through the same paper
+   execution rules, when one is available.
 
 Trade results report net expectancy per trade, cumulative net return, maximum
 drawdown, profit factor, trade count, exposure/time in market, and uncertainty
@@ -191,3 +198,4 @@ or uncertainty spans both useful and harmful results.
   demonstrates a durable edge.
 - Adding indicators, providers, or macro sources without measuring their
   incremental out-of-sample value and cost.
+

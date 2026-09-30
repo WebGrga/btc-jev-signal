@@ -1,4 +1,7 @@
 import { buildReport } from "./experiment-report.js";
+import { buildPaperEvaluation, type PaperEvaluationReport } from "./paper-evaluation.js";
+import type { PaperTradePosition } from "./paper-simulator.js";
+import type { PaperTradeScan } from "./paper-trade.js";
 import type {
   ExperimentReport,
   Forecast,
@@ -54,6 +57,9 @@ export interface DashboardData {
   recent_forecasts: DashboardForecast[];
   probability_history: ProbabilityPoint[];
   report: ExperimentReport;
+  paper_evaluation: PaperEvaluationReport;
+  recent_paper_scans: PaperTradeScan[];
+  recent_paper_trades: PaperTradePosition[];
   schedule: typeof HORIZON_SCHEDULE;
   methodology: {
     scoring_policy: "natural_non_overlapping_v1";
@@ -96,6 +102,8 @@ export function buildDashboardData(
   batches: readonly PredictionBatch[],
   settlements: readonly Settlement[],
   generatedAt = new Date(),
+  paperScans: readonly PaperTradeScan[] = [],
+  paperTrades: readonly PaperTradePosition[] = [],
 ): DashboardData {
   const sortedBatches = [...batches].sort(
     (left, right) =>
@@ -119,7 +127,7 @@ export function buildDashboardData(
     generated_at_utc: generatedAt.toISOString(),
     experimental_only: true,
     disclaimer:
-      "Experimental personal project using TypeSafe Jev. It is not financial advice and does not place trades.",
+      "Experimental personal project using TypeSafe Jev. Paper positions are simulations only; this project does not place orders or provide financial advice.",
     latest_batch: latestBatch
       ? {
           batch_id: latestBatch.batch_id,
@@ -147,6 +155,9 @@ export function buildDashboardData(
       }))
       .filter((point) => Object.keys(point.higher_probability).length > 0),
     report: buildReport(sortedBatches, settlements),
+    paper_evaluation: buildPaperEvaluation(paperScans, paperTrades, sortedBatches, generatedAt),
+    recent_paper_scans: [...paperScans].sort((a, b) => b.scanned_at_utc.localeCompare(a.scanned_at_utc)).slice(0, 50),
+    recent_paper_trades: [...paperTrades].sort((a, b) => b.created_at_utc.localeCompare(a.created_at_utc)).slice(0, 25),
     schedule: HORIZON_SCHEDULE,
     methodology: {
       scoring_policy: "natural_non_overlapping_v1",
@@ -155,3 +166,4 @@ export function buildDashboardData(
     },
   };
 }
+
