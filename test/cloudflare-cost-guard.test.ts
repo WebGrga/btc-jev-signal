@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { PaperTradePosition } from "../src/paper-simulator.js";
 import {
   DEFAULT_TYPESAFE_DAILY_REQUEST_LIMIT,
   parseTypesafeDailyRequestLimit,
@@ -10,6 +11,8 @@ import {
 } from "../src/cloudflare-cost-guard.js";
 import {
   appendCloudflarePaperTradeScan,
+  hasActivePaperTrade,
+  saveCloudflarePaperTrade,
   claimScheduledBoundary,
   countTypesafeRequests,
   isCollectionPaused,
@@ -51,6 +54,13 @@ class MemoryStatement {
         this.database.paperScans.set(scanId, { snapshot_id: snapshotId, scanned_at_utc: scannedAt, outcome, reason_code: reason, data_json: data });
         changes = 1;
       }
+    } else if (this.sql.includes("INSERT INTO paper_trade_positions")) {
+      const [tradeId, proposalId, symbol, status, createdAt, updatedAt, data] = this.values as [string, string, string, string, string, string, string];
+      const previous = this.database.paperPositions.get(tradeId);
+      if (!previous || (["pending_entry", "open"].includes(previous.status) && updatedAt >= previous.updated_at_utc)) {
+        this.database.paperPositions.set(tradeId, { proposal_id: proposalId, symbol, status, created_at_utc: createdAt, updated_at_utc: updatedAt, data_json: data });
+        changes = 1;
+      }
     } else if (this.sql.includes("UPDATE scheduled_runs")) {
       const [status, , , , , boundary] = this.values as [string, number, number, string | null, string, string];
       const row = this.database.scheduled.get(boundary);
@@ -79,6 +89,11 @@ class MemoryStatement {
     if (this.sql.includes("SELECT paused FROM experiment_control")) {
       return this.database.paused === null ? null : { paused: this.database.paused } as T;
     }
+    if (this.sql.includes("SELECT trade_id FROM paper_trade_positions")) {
+      const [symbol] = this.values as [string];
+      const row = [...this.database.paperPositions.entries()].find(([, position]) => position.symbol === symbol && ["pending_entry", "open"].includes(position.status));
+      return row ? { trade_id: row[0] } as T : null;
+    }
     if (this.sql.includes("SELECT request_key FROM typesafe_request_reservations")) {
       const [key] = this.values as [string];
       const row = this.database.reservations.get(key);
@@ -92,6 +107,7 @@ class MemoryD1 {
   readonly reservations = new Map<string, ReservationRow>();
   readonly scheduled = new Map<string, { status: string }>();
   readonly paperScans = new Map<string, { snapshot_id: string; scanned_at_utc: string; outcome: string; reason_code: string | null; data_json: string }>();
+  readonly paperPositions = new Map<string, { proposal_id: string; symbol: string; status: string; created_at_utc: string; updated_at_utc: string; data_json: string }>();
   paused: 0 | 1 | null = 0;
 
   prepare(sql: string): MemoryStatement {
@@ -158,4 +174,20 @@ test("D1 paper scans are idempotent by immutable scan id", async () => {
   } as never;
   assert.equal(await appendCloudflarePaperTradeScan(db, scan), true);
   assert.equal(await appendCloudflarePaperTradeScan(db, scan), false);
+});
+
+test("D1 allows one active paper position per symbol and closes its active slot", async () => {
+  const db = new MemoryD1() as unknown as D1Database;
+  const position = {
+    trade_id: "paper:proposal-one",
+    proposal_id: "proposal-one",
+    symbol: "BTCUSD",
+    status: "pending_entry",
+    created_at_utc: "2026-09-29T12:00:00.000Z",
+    updated_at_utc: "2026-09-29T12:00:00.000Z",
+  } as unknown as PaperTradePosition;
+  await saveCloudflarePaperTrade(db, position);
+  assert.equal(await hasActivePaperTrade(db, "BTCUSD"), true);
+  await saveCloudflarePaperTrade(db, { ...position, status: "closed", updated_at_utc: "2026-09-29T16:00:00.000Z" });
+  assert.equal(await hasActivePaperTrade(db, "BTCUSD"), false);
 });

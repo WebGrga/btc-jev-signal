@@ -231,6 +231,13 @@ export async function fetchCloudflareAlignedClose(timestampMs: number): Promise<
   return round(candle.close, 2);
 }
 
+export async function fetchCloudflarePaperCandles(fromMs: number, throughMs = Date.now()): Promise<Candle[]> {
+  const rows = await fetchCandles("1m", 500, throughMs + 1);
+  return rows
+    .filter((candle) => candle.openTimeMs >= fromMs && candle.closeTimeMs < throughMs)
+    .sort((a, b) => a.openTimeMs - b.openTimeMs);
+}
+
 export async function buildCloudflareExperimentState(boundaryMs: number, liquidationWindowMs: number): Promise<ExperimentState> {
   if (boundaryMs % MINUTE_MS !== 0) throw new Error("Experiment boundary must align to a UTC minute");
   const [auxiliary, oneMinute, fifteenMinute, oneHour, fourHour, dayRows] = await Promise.all([
