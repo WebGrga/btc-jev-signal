@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import type { PaperTradeScan } from "./paper-trade.js";
+import type { PaperTradePosition } from "./paper-simulator.js";
 import type { PredictionBatch, Settlement } from "./experiment-types.js";
 import { typesafeRequestKey, type TypeSafeRequestStage } from "./cloudflare-cost-guard.js";
 
@@ -58,6 +59,34 @@ export async function appendCloudflarePaperTradeScan(db: D1Database, scan: Paper
     "INSERT OR IGNORE INTO paper_trade_scans (scan_id, snapshot_id, scanned_at_utc, outcome, reason_code, data_json) VALUES (?, ?, ?, ?, ?, ?)",
   ).bind(scan.scan_id, scan.snapshot_id, scan.scanned_at_utc, scan.outcome, scan.reason_code, JSON.stringify(scan)).run();
   return (result.meta.changes ?? 0) > 0;
+}
+
+export async function hasActivePaperTrade(db: D1Database, symbol: string): Promise<boolean> {
+  const row = await db.prepare(
+    "SELECT trade_id FROM paper_trade_positions WHERE symbol = ? AND status IN ('pending_entry', 'open') LIMIT 1",
+  ).bind(symbol).first<{ trade_id: string }>();
+  return row !== null;
+}
+
+export async function loadActivePaperTrades(db: D1Database): Promise<PaperTradePosition[]> {
+  const result = await db.prepare(
+    "SELECT data_json FROM paper_trade_positions WHERE status IN ('pending_entry', 'open') ORDER BY created_at_utc ASC LIMIT 100",
+  ).all<JsonRow>();
+  return parseRows<PaperTradePosition>(result.results);
+}
+
+export async function saveCloudflarePaperTrade(db: D1Database, position: PaperTradePosition): Promise<void> {
+  await db.prepare(
+    `INSERT INTO paper_trade_positions
+      (trade_id, proposal_id, symbol, status, created_at_utc, updated_at_utc, data_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(trade_id) DO UPDATE SET
+      status = excluded.status,
+      updated_at_utc = excluded.updated_at_utc,
+      data_json = excluded.data_json
+     WHERE paper_trade_positions.status IN ('pending_entry', 'open')
+       AND excluded.updated_at_utc >= paper_trade_positions.updated_at_utc`,
+  ).bind(position.trade_id, position.proposal_id, position.symbol, position.status, position.created_at_utc, position.updated_at_utc, JSON.stringify(position)).run();
 }
 
 export async function isCollectionPaused(db: D1Database): Promise<boolean> {

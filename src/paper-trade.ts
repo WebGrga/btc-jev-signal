@@ -45,6 +45,7 @@ export interface PaperTradeProposal {
   quote_asset: ExperimentState["snapshot"]["quote_asset"];
   decision_timestamp_utc: string;
   anchor_price: number;
+  atr_4h_usdt: number;
   action: PaperAction;
   action_probabilities: Record<PaperAction, number>;
   typesafe_confidence: number;
@@ -124,6 +125,7 @@ export function assessPaperTradeCandidate(state: ExperimentState, nowMs = Date.n
   const orderBookAsOfMs = Date.parse(orderBook?.as_of_utc ?? "");
   const spread = orderBook?.available ? orderBook.spread_bps : null;
   const atrPct = state.timeframes["4h"]?.atr_14_pct;
+  const atrUsd = state.timeframes["4h"]?.atr_14_usdt;
   const freshness = nowMs - snapshotMs;
   const costs: PaperTradeCosts = {
     model_version: PAPER_COST_MODEL_VERSION,
@@ -136,7 +138,7 @@ export function assessPaperTradeCandidate(state: ExperimentState, nowMs = Date.n
     candidate, reason, dataFreshnessMs: freshness, estimatedMoveBps: finiteProbability(atrPct) ? atrPct * 100 : 0, costs,
   });
 
-  if (![snapshotMs, collectedMs, completedMs].every(Number.isFinite) || !finitePositive(state.snapshot.anchor_price_usdt) || !finitePositive(atrPct)) {
+  if (![snapshotMs, collectedMs, completedMs].every(Number.isFinite) || !finitePositive(state.snapshot.anchor_price_usdt) || !finitePositive(atrPct) || !finitePositive(atrUsd)) {
     return noCandidate("missing_data");
   }
   if (snapshotMs > nowMs + 60_000 || collectedMs > nowMs + 60_000 || collectedMs < snapshotMs - 60_000 || nowMs - collectedMs > MAX_STATE_AGE_MS || nowMs - snapshotMs > MAX_STATE_AGE_MS || completedMs > snapshotMs || snapshotMs - completedMs > 2 * 15 * 60_000) {
@@ -165,6 +167,7 @@ export interface DecidePaperTradeOptions {
   beforeRequest?: () => Promise<RequestPermit>;
   now?: () => Date;
   sourceForecastIds?: string[];
+  riskBlocked?: string | null;
 }
 
 export type DecidePaperTradeResult =
@@ -229,6 +232,7 @@ export function buildPaperTradeProposal(
     quote_asset: state.snapshot.quote_asset,
     decision_timestamp_utc: state.snapshot.timestamp_utc,
     anchor_price: state.snapshot.anchor_price_usdt,
+    atr_4h_usdt: state.timeframes["4h"].atr_14_usdt,
     action: malformed ? "no_trade" : action!,
     action_probabilities: normalizedActionProbabilities,
     typesafe_confidence: malformed ? 0 : confidence as number,
@@ -256,6 +260,7 @@ export async function decidePaperTrade(state: ExperimentState, options: DecidePa
     }
     return { kind: "no_candidate", assessment };
   }
+  if (options.riskBlocked) return { kind: "blocked", assessment, request: { allowed: false, reason: options.riskBlocked } };
   const permit = await options.beforeRequest?.() ?? { allowed: true };
   if (!permit.allowed) return { kind: "blocked", assessment, request: permit };
 

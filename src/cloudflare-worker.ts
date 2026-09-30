@@ -1,8 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { buildDashboardData } from "./dashboard-data.js";
-import { buildCloudflareExperimentState, fetchCloudflareAlignedClose } from "./cloudflare-market.js";
+import { buildCloudflareExperimentState, fetchCloudflareAlignedClose, fetchCloudflarePaperCandles } from "./cloudflare-market.js";
 import { assessPaperTradeCandidate, decidePaperTrade, makePaperTradeScan } from "./paper-trade.js";
+import { advancePaperTrade } from "./paper-simulator.js";
 import { parseTypesafeDailyRequestLimit, utcDay } from "./cloudflare-cost-guard.js";
 import {
   appendCloudflarePaperTradeScan,
@@ -10,10 +11,13 @@ import {
   claimScheduledBoundary,
   countTypesafeRequests,
   hasCloudflarePaperTradeScan,
+  hasActivePaperTrade,
   isCollectionPaused,
+  loadActivePaperTrades,
   loadCloudflareBatches,
   loadCloudflareSettlements,
   reserveTypesafeRequest,
+  saveCloudflarePaperTrade,
   updateScheduledBoundary,
 } from "./cloudflare-store.js";
 import type { ActualDirection, Forecast, Settlement } from "./experiment-types.js";
@@ -24,6 +28,7 @@ interface Env {
   TYPESAFE_API_KEY: string;
   TYPESAFE_DAILY_REQUEST_LIMIT?: string;
   LIQUIDATION_WINDOW_MS?: string;
+  PAPER_TRADE_NOTIONAL_USD?: string;
 }
 
 const FIFTEEN_MINUTES_MS = 15 * 60_000;
@@ -92,6 +97,27 @@ interface ForecastBoundaryResult {
   scanOutcome: string | null;
 }
 
+function paperTradeNotional(env: Env): number {
+  const value = Number(env.PAPER_TRADE_NOTIONAL_USD ?? "100");
+  return Number.isFinite(value) && value >= 10 && value <= 1_000 ? value : 100;
+}
+
+async function advanceOpenPaperTrades(env: Env, nowMs: number): Promise<number> {
+  const positions = await loadActivePaperTrades(env.DB);
+  if (positions.length === 0) return 0;
+  const earliestEntry = Math.min(...positions.map((position) => Date.parse(position.proposal.decision_timestamp_utc) + 60_000));
+  const candles = await fetchCloudflarePaperCandles(earliestEntry, nowMs);
+  let updated = 0;
+  for (const position of positions) {
+    const next = advancePaperTrade(position.proposal, candles, position.quote_notional, nowMs);
+    if (next.status !== position.status || next.last_processed_candle_open_ms !== position.last_processed_candle_open_ms) {
+      await saveCloudflarePaperTrade(env.DB, next);
+      updated += 1;
+    }
+  }
+  return updated;
+}
+
 async function forecastBoundary(env: Env, boundaryMs: number, requestLimit: number): Promise<ForecastBoundaryResult> {
   const boundaryUtc = new Date(boundaryMs).toISOString();
   const currentUsage = await countTypesafeRequests(env.DB, utcDay());
@@ -104,10 +130,12 @@ async function forecastBoundary(env: Env, boundaryMs: number, requestLimit: numb
     return { requestsUsed: currentUsage, requestDecisions: [], skippedReason: "paused", scanOutcome: null };
   }
   const state = await buildCloudflareExperimentState(boundaryMs, liquidationWindow(env));
+  const activePosition = await hasActivePaperTrade(env.DB, state.snapshot.symbol);
   let result;
   try {
     result = await decidePaperTrade(state, {
       apiKey: env.TYPESAFE_API_KEY,
+      riskBlocked: activePosition ? "risk_limit" : null,
       beforeRequest: async () => {
         if (await isCollectionPaused(env.DB)) return { allowed: false, reason: "paused" };
         const nowUtc = new Date().toISOString();
@@ -133,6 +161,10 @@ async function forecastBoundary(env: Env, boundaryMs: number, requestLimit: numb
   }
   const scan = makePaperTradeScan(state, result);
   await appendCloudflarePaperTradeScan(env.DB, scan);
+  if (scan.proposal) {
+    const position = advancePaperTrade(scan.proposal, [], paperTradeNotional(env), Date.parse(scan.proposal.decision_timestamp_utc));
+    await saveCloudflarePaperTrade(env.DB, position);
+  }
   const requestsUsed = await countTypesafeRequests(env.DB, utcDay());
   const request = result.kind === "no_candidate" ? null : result.request;
   return {
@@ -214,6 +246,7 @@ export default {
         }
 
         const settled = await settleDue(env, controller.scheduledTime);
+        const paperTradesUpdated = await advanceOpenPaperTrades(env, Date.now());
         const result = await forecastBoundary(env, boundaryMs, requestLimit);
         const wasPaused = result.skippedReason === "paused" || result.requestDecisions.some((decision) => decision.reason === "paused");
         const reachedLimit = result.skippedReason === "daily_limit" || result.requestDecisions.some((decision) => decision.reason === "daily_limit");
@@ -223,6 +256,7 @@ export default {
           event: "forecast_cycle",
           boundary_utc: boundaryUtc,
           settled,
+          paper_trades_updated: paperTradesUpdated,
           status,
           paper_trade_scan_outcome: result.scanOutcome,
           typesafe_requests_used: result.requestsUsed,
