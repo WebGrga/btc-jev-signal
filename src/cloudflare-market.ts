@@ -32,14 +32,28 @@ function url(base: string, path: string, params: Record<string, string>): URL {
   return result;
 }
 
+class HttpResponseError extends Error {
+  constructor(message: string, readonly retryable: boolean) {
+    super(message);
+  }
+}
+
 async function fetchJson<T>(input: URL, attempts = 4): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const response = await fetch(input, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) throw new Error(`${input.host}${input.pathname} returned ${response.status}`);
+      if (!response.ok) {
+        const detail = (await response.text()).replace(/\s+/g, " ").slice(0, 240);
+        const retryable = response.status === 429 || response.status >= 500;
+        throw new HttpResponseError(
+          `${input.host}${input.pathname} returned ${response.status}${detail ? `: ${detail}` : ""}`,
+          retryable,
+        );
+      }
       return await response.json() as T;
     } catch (error) {
+      if (error instanceof HttpResponseError && !error.retryable) throw error;
       lastError = error;
       if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** attempt, 5_000)));
     }
