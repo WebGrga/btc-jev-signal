@@ -1,6 +1,6 @@
 # BTC–Jev Signal
 
-A public, paper-only BTC research experiment using TypeSafe Jev with Bybit spot and perpetual-futures market data. A public Cloudflare Worker serves the dashboard and schedules a private Frankfurt-placed Worker, which collects data, requests Jev decisions, and records simulated outcomes. It does not place orders.
+A public, paper-only BTC research experiment using TypeSafe Jev with Bybit spot and perpetual-futures market data. A public Cloudflare Worker serves the dashboard and schedules a private Stockholm-placed Worker, which collects data, requests Jev decisions, and records simulated outcomes. It does not place orders.
 
 Public dashboard: **https://lab.rokogrga.com/btc-jev**
 
@@ -60,7 +60,7 @@ Small samples are descriptive only. Jev confidence describes concentration in th
 ## Cloudflare production architecture
 
 - A public Cloudflare Worker serves the API and dashboard assets and owns the Cron Trigger.
-- Cron invokes a separate private Worker through a Service Binding. The runner is placed in `aws:eu-central-1` and owns exchange, Jev, D1 collection, paper-simulation, and settlement calls.
+- Cron invokes a separate private Worker through a Service Binding. The runner is placed in `aws:eu-north-1` and owns exchange, Jev, D1 collection, paper-simulation, and settlement calls.
 - A project-specific Netlify site builds this repository's dashboard under `/btc-jev`; the RG Lab edge route exposes it at the canonical `lab.rokogrga.com/btc-jev` address.
 - Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
 - Cloudflare D1 stores historical prediction batches and settlements, paper scans, proposals, and simulated positions.
@@ -100,7 +100,7 @@ npx wrangler secret put TYPESAFE_API_KEY --name btc-jev-signal-runner
 npm run cloudflare:deploy
 ```
 
-The public scheduler is configured in `wrangler.jsonc`; the private, Frankfurt-placed runner is configured in `wrangler.runner.jsonc`. The D1 schema is in `migrations/`.
+The public scheduler is configured in `wrangler.jsonc`; the private, Stockholm-placed runner is configured in `wrangler.runner.jsonc`. The D1 schema is in `migrations/`.
 
 Useful Cloudflare commands:
 
