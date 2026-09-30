@@ -38,12 +38,6 @@ class HttpResponseError extends Error {
   }
 }
 
-class HttpResponseError extends Error {
-  constructor(message: string, readonly retryable: boolean) {
-    super(message);
-  }
-}
-
 async function fetchJson<T>(input: URL, attempts = 4): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
