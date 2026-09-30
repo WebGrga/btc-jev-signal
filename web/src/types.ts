@@ -137,6 +137,9 @@ export interface DashboardData {
     reports: HorizonReport[];
     note: string;
   };
+  paper_evaluation: PaperEvaluationReport;
+  recent_paper_scans: PaperTradeScan[];
+  recent_paper_trades: PaperTradePosition[];
   schedule: Record<Horizon, { issue_every_minutes: number; expected_per_utc_day: number }>;
   methodology: {
     scoring_policy: "natural_non_overlapping_v1";
@@ -144,3 +147,86 @@ export interface DashboardData {
     legacy_overlapping_forecasts_retained: true;
   };
 }
+
+export type PaperStatus = "pending_entry" | "open" | "closed" | "skipped" | "unpriceable";
+
+export interface PaperTradeProposal {
+  proposal_id: string;
+  decision_timestamp_utc: string;
+  action: "no_trade" | `enter_long:${string}`;
+  action_probabilities: Record<string, number>;
+  typesafe_confidence: number;
+  selected_net_positive_probability: number | null;
+  selected_policy_id: string | null;
+  eligible: boolean;
+  eligibility_reason: string | null;
+  reason_code: string | null;
+  anchor_price: number;
+  costs: {
+    model_version: string;
+    taker_fee_bps_per_side: number;
+    spread_bps_round_trip: number;
+    slippage_bps_per_side: number;
+    estimated_round_trip_bps: number;
+  };
+}
+
+export interface PaperTradeScan {
+  scan_id: string;
+  scanned_at_utc: string;
+  outcome: "candidate_sent" | "no_candidate" | "blocked";
+  reason_code: string | null;
+  estimated_move_bps: number | null;
+  proposal: PaperTradeProposal | null;
+  market_state: ExperimentState;
+}
+
+export interface PaperTradePosition {
+  trade_id: string;
+  proposal_id: string;
+  proposal: PaperTradeProposal;
+  status: PaperStatus;
+  status_reason: string | null;
+  quote_notional: number;
+  policy_id: string | null;
+  entry: { timestamp_utc: string; raw_price: number; effective_price: number } | null;
+  exit: { timestamp_utc: string; raw_price: number; effective_price: number } | null;
+  exit_reason: string | null;
+  gross_pnl_quote: number | null;
+  fees_quote: number | null;
+  spread_cost_quote: number | null;
+  slippage_cost_quote: number | null;
+  net_pnl_quote: number | null;
+  net_return_pct: number | null;
+  source_candles: Array<{ openTimeMs: number; closeTimeMs: number; open: number; high: number; low: number; close: number }>;
+}
+
+export interface PaperStrategyMetrics {
+  strategy: string;
+  sample_windows: number;
+  trade_count: number;
+  pending_or_unpriceable: number;
+  total_net_pnl_quote: number | null;
+  net_expectancy_quote_per_trade: number | null;
+  maximum_drawdown_quote: number | null;
+  profit_factor: number | null;
+  exposure_minutes: number;
+  expectancy_95pct_interval_quote: [number, number] | null;
+  evidence_status: "insufficient_sample" | "descriptive_only" | "sufficient_sample" | "unavailable";
+}
+
+export interface PaperEvaluationReport {
+  evaluation_version: string;
+  policy_version: string;
+  cost_model_version: string;
+  minimum_training_trades: number;
+  minimum_evidence_trades: number;
+  closed_trade_count: number;
+  pending_trade_count: number;
+  skipped_trade_count: number;
+  unpriceable_trade_count: number;
+  folds: Array<{ month_utc: string; training_trades_available: number; status: "warmup" | "out_of_sample"; strategies: PaperStrategyMetrics[] }>;
+  out_of_sample_strategies: PaperStrategyMetrics[];
+  methodology_notes: string[];
+}
+

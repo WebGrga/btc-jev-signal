@@ -61,6 +61,16 @@ export async function appendCloudflarePaperTradeScan(db: D1Database, scan: Paper
   return (result.meta.changes ?? 0) > 0;
 }
 
+export async function loadCloudflarePaperTradeScans(db: D1Database): Promise<PaperTradeScan[]> {
+  const [proposalRows, recentRows] = await Promise.all([
+    db.prepare("SELECT data_json FROM paper_trade_scans WHERE outcome = 'candidate_sent' ORDER BY scanned_at_utc DESC LIMIT 1000").all<JsonRow>(),
+    db.prepare("SELECT data_json FROM paper_trade_scans ORDER BY scanned_at_utc DESC LIMIT 50").all<JsonRow>(),
+  ]);
+  const unique = new Map<string, PaperTradeScan>();
+  for (const scan of [...proposalRows.results, ...recentRows.results].map((row) => JSON.parse(row.data_json) as PaperTradeScan)) unique.set(scan.scan_id, scan);
+  return [...unique.values()];
+}
+
 export async function hasActivePaperTrade(db: D1Database, symbol: string): Promise<boolean> {
   const row = await db.prepare(
     "SELECT trade_id FROM paper_trade_positions WHERE symbol = ? AND status IN ('pending_entry', 'open') LIMIT 1",
@@ -71,6 +81,13 @@ export async function hasActivePaperTrade(db: D1Database, symbol: string): Promi
 export async function loadActivePaperTrades(db: D1Database): Promise<PaperTradePosition[]> {
   const result = await db.prepare(
     "SELECT data_json FROM paper_trade_positions WHERE status IN ('pending_entry', 'open') ORDER BY created_at_utc ASC LIMIT 100",
+  ).all<JsonRow>();
+  return parseRows<PaperTradePosition>(result.results);
+}
+
+export async function loadCloudflarePaperTrades(db: D1Database): Promise<PaperTradePosition[]> {
+  const result = await db.prepare(
+    "SELECT data_json FROM paper_trade_positions ORDER BY created_at_utc DESC LIMIT 1000",
   ).all<JsonRow>();
   return parseRows<PaperTradePosition>(result.results);
 }
@@ -156,3 +173,4 @@ export async function reserveTypesafeRequest(
     requests_used: requestsUsed,
   };
 }
+

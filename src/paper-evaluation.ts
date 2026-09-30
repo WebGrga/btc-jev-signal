@@ -236,6 +236,7 @@ export function buildPaperEvaluation(
       "The direction-only forecast baseline appears only when a matching frozen 4h forecast exists for the exact proposal timestamp.",
       "Uncertainty intervals use a normal approximation and are descriptive. Fewer than 30 strategy trades cannot be labeled evidence of edge.",
       "Forecast accuracy, Brier score, and log loss remain separate direction-forecast diagnostics.",
+      "The dashboard currently evaluates the latest 1,000 stored paper-position records and their matching candidate scans.",
     ],
   };
 }

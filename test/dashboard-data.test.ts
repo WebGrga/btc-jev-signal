@@ -70,6 +70,11 @@ test("dashboard exposes latest probabilities and settlement status without usage
   assert.equal(data.probability_history[0]?.higher_probability["15m"], 0.9);
   assert.equal(data.report.reports.find((item) => item.horizon === "overall")?.issued, 2);
   assert.equal(data.schedule["1h"].expected_per_utc_day, 24);
+  assert.equal(data.paper_evaluation.closed_trade_count, 0);
+  assert.deepEqual(data.recent_paper_scans, []);
+  assert.deepEqual(data.recent_paper_trades, []);
+  assert.match(data.disclaimer, /simulations only/);
   assert.equal("usage" in data.latest_forecasts[0]!, false);
   assert.equal("usage" in data.latest_batch!, false);
 });
+
