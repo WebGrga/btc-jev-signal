@@ -1,7 +1,7 @@
 export const DEFAULT_TYPESAFE_DAILY_REQUEST_LIMIT = 97;
 export const MAX_TYPESAFE_DAILY_REQUEST_LIMIT = 10_000;
 
-export type TypeSafeRequestStage = "parallel_horizons" | "eod_cascade";
+export type TypeSafeRequestStage = "parallel_horizons" | "eod_cascade" | "paper_trade_decision";
 
 export function parseTypesafeDailyRequestLimit(value: string | undefined): number {
   if (value === undefined || value.trim() === "") return DEFAULT_TYPESAFE_DAILY_REQUEST_LIMIT;

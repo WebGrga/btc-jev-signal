@@ -9,6 +9,7 @@ import {
   utcDay,
 } from "../src/cloudflare-cost-guard.js";
 import {
+  appendCloudflarePaperTradeScan,
   claimScheduledBoundary,
   countTypesafeRequests,
   isCollectionPaused,
@@ -23,6 +24,8 @@ interface ReservationRow {
   stage: string;
   reserved_at_utc: string;
 }
+
+interface PaperScanRow { data_json: string }
 
 class MemoryStatement {
   private values: unknown[] = [];
@@ -40,6 +43,12 @@ class MemoryStatement {
       const [boundary] = this.values as [string];
       if (!this.database.scheduled.has(boundary)) {
         this.database.scheduled.set(boundary, { status: "started" });
+        changes = 1;
+      }
+    } else if (this.sql.includes("INSERT OR IGNORE INTO paper_trade_scans")) {
+      const [scanId, snapshotId, scannedAt, outcome, reason, data] = this.values as [string, string, string, string, string | null, string];
+      if (!this.database.paperScans.has(scanId)) {
+        this.database.paperScans.set(scanId, { snapshot_id: snapshotId, scanned_at_utc: scannedAt, outcome, reason_code: reason, data_json: data });
         changes = 1;
       }
     } else if (this.sql.includes("UPDATE scheduled_runs")) {
@@ -82,6 +91,7 @@ class MemoryStatement {
 class MemoryD1 {
   readonly reservations = new Map<string, ReservationRow>();
   readonly scheduled = new Map<string, { status: string }>();
+  readonly paperScans = new Map<string, { snapshot_id: string; scanned_at_utc: string; outcome: string; reason_code: string | null; data_json: string }>();
   paused: 0 | 1 | null = 0;
 
   prepare(sql: string): MemoryStatement {
@@ -135,4 +145,17 @@ test("scheduled boundary claims deduplicate Cron delivery and persist pause stat
   assert.equal(await isCollectionPaused(db), true);
   memory.paused = null;
   await assert.rejects(isCollectionPaused(db), /missing or invalid/);
+});
+
+test("D1 paper scans are idempotent by immutable scan id", async () => {
+  const db = new MemoryD1() as unknown as D1Database;
+  const scan = {
+    scan_id: "scan:BTCUSD:2026-09-29T12:00:00.000Z:2.0.0:atr_cost_event_v1",
+    snapshot_id: "BTCUSD:2026-09-29T12:00:00.000Z:2.0.0",
+    scanned_at_utc: "2026-09-29T12:00:05.000Z",
+    outcome: "no_candidate",
+    reason_code: "move_below_estimated_cost",
+  } as never;
+  assert.equal(await appendCloudflarePaperTradeScan(db, scan), true);
+  assert.equal(await appendCloudflarePaperTradeScan(db, scan), false);
 });
