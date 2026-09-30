@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
-  "placement": { "region": "aws:eu-central-1" },
+  "placement": { "region": "aws:eu-north-1" },
   "d1_databases": [
     {
       "binding": "DB",
