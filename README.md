@@ -1,6 +1,6 @@
 # BTC–Jev Signal
 
-A public, paper-only BTC research experiment using TypeSafe Jev with Kraken spot and Binance futures market data. The current Cloudflare Worker screens for cost-aware candidate events, lets Jev recommend a fixed paper policy or no trade, and records simulated outcomes. It does not place orders.
+A public, paper-only BTC research experiment using TypeSafe Jev with Bybit spot and perpetual-futures market data. A public Cloudflare Worker serves the dashboard and schedules a private Frankfurt-placed Worker, which collects data, requests Jev decisions, and records simulated outcomes. It does not place orders.
 
 Public dashboard: **https://lab.rokogrga.com/btc-jev**
 
@@ -33,15 +33,15 @@ Every State uses normalized UTC ISO 8601 timestamps and completed candles only.
 
 | Measurement | Source and definition |
 | --- | --- |
-| Anchor and realized target | Cloudflare: Kraken Spot completed BTC/USD 1-minute candle. Local runner: Binance Spot completed BTCUSDT 1-minute candle. |
+| Anchor and realized target | Cloudflare: Bybit Spot completed BTCUSDT 1-minute candle. Local runner: Binance Spot completed BTCUSDT 1-minute candle. |
 | Returns | 1m, 5m, 15m, 1h, and 4h from the runtime's spot source |
 | 15m / 1h / 4h indicators | RSI(14), MACD(12,26,9), ATR(14), SMA/EMA 20/50/200, price distances, bar returns, and volume ratios from completed spot candles |
 | UTC session | Spot open, high, low, volume, return from open, and minutes to 00:00 UTC |
-| Perpetual futures | Funding, mark/index price, open interest, and OI changes from Binance USD-M Futures |
-| Liquidations | Short timestamped observation of Binance's public BTCUSDT force-order WebSocket |
-| Order book | Cloudflare: Kraken Spot top-20 levels. Local runner: Binance Spot top-20 levels. Both expose bid/ask notionals, spread, and imbalance. |
+| Perpetual futures | Funding, mark/index price, open interest, and OI changes from Bybit USDT Perpetual |
+| Liquidations | Short timestamped observation of Bybit's public BTCUSDT all-liquidation WebSocket |
+| Order book | Cloudflare: Bybit Spot top-20 levels. Local runner: Binance Spot top-20 levels. Both expose bid/ask notionals, spread, and imbalance. |
 
-The State always identifies `snapshot.symbol`, `snapshot.quote_asset`, and every source string. Some stable JSON field names still end in `_usdt` for backward compatibility; in Cloudflare records those monetary values are USD, as declared by `quote_asset: "USD"`.
+The State always identifies `snapshot.symbol`, `snapshot.quote_asset`, and every source string. Monetary values are denominated in USDT and use stable `_usdt` field names.
 
 All current candidate questions share one TypeSafe request. No-candidate scans make no TypeSafe request. The API key stays server-side.
 
@@ -59,18 +59,19 @@ Small samples are descriptive only. Jev confidence describes concentration in th
 
 ## Cloudflare production architecture
 
-- Cloudflare Workers serves the API and runs scheduled candidate scans, the paper simulator, and settlements.
+- A public Cloudflare Worker serves the API and dashboard assets and owns the Cron Trigger.
+- Cron invokes a separate private Worker through a Service Binding. The runner is placed in `aws:eu-central-1` and owns exchange, Jev, D1 collection, paper-simulation, and settlement calls.
 - A project-specific Netlify site builds this repository's dashboard under `/btc-jev`; the RG Lab edge route exposes it at the canonical `lab.rokogrga.com/btc-jev` address.
 - Cloudflare Static Assets also provides a fallback copy on `workers.dev`.
 - Cloudflare D1 stores historical prediction batches and settlements, paper scans, proposals, and simulated positions.
-- Cloudflare Worker Secrets stores `TYPESAFE_API_KEY`.
-- One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Kraken candle to finalize before collection.
+- Only the private runner stores the `TYPESAFE_API_KEY` secret.
+- One Cron Trigger runs at minutes 1, 16, 31, and 46, allowing the just-completed Bybit candle to finalize before collection.
 
 The production database is intentionally separate from `data/*.jsonl`. A new deployment starts a clean online history unless a local history import is deliberately approved and performed.
 
 ### Cloudflare usage guard
 
-The Worker allows at most 97 TypeSafe requests per UTC day by default. Candidate gating usually uses fewer, and a no-candidate scan consumes no request. `TYPESAFE_DAILY_REQUEST_LIMIT` in `wrangler.jsonc` can lower or raise that positive whole-number limit (maximum 10,000). Each scheduled boundary is claimed once in D1, and each TypeSafe request reserves one daily slot before it is sent. Reservations count conservatively, even if the provider request later fails. The Worker disables SDK retries so one reservation cannot fan out into extra TypeSafe attempts. Local CLI runs are not covered by this Cloudflare-only limit.
+The private runner allows at most 97 TypeSafe requests per UTC day by default. Candidate gating usually uses fewer, and a no-candidate scan consumes no request. `TYPESAFE_DAILY_REQUEST_LIMIT` in `wrangler.runner.jsonc` can lower or raise that positive whole-number limit (maximum 10,000). Each scheduled boundary is claimed once in D1, and each TypeSafe request reserves one daily slot before it is sent. Reservations count conservatively, even if the provider request later fails. The runner disables SDK retries so one reservation cannot fan out into extra TypeSafe attempts. Local CLI runs are not covered by this Cloudflare-only limit.
 
 The D1 control row provides a pause switch. Run either command from the repository with Wrangler authenticated to this Cloudflare account:
 
@@ -95,18 +96,19 @@ Requires Node.js 20.19 or newer and a Cloudflare account.
 npm install
 npx wrangler login
 npm run cloudflare:migrate
-npx wrangler secret put TYPESAFE_API_KEY
+npx wrangler secret put TYPESAFE_API_KEY --name btc-jev-signal-runner
 npm run cloudflare:deploy
 ```
 
-Cloudflare configuration is in `wrangler.jsonc`; the D1 schema is in `migrations/`.
+The public scheduler is configured in `wrangler.jsonc`; the private, Frankfurt-placed runner is configured in `wrangler.runner.jsonc`. The D1 schema is in `migrations/`.
 
 Useful Cloudflare commands:
 
 ```powershell
 npm run cloudflare:check   # Build and validate without publishing
+npm run cloudflare:check:runner # Validate only the private runner
 npm run cloudflare:dev     # Local Worker/D1 development
-npm run cloudflare:deploy  # Build and publish
+npm run cloudflare:deploy  # Build, publish runner, then publish public Worker
 ```
 
 ## Local experiment
